@@ -104,6 +104,8 @@ const EVENTS = {
 
 const STATUS = { Pending: 0, Submitted: 1, Verified: 2, Failed: 3, Disputed: 4, Released: 5, Refunded: 6 } as const;
 const NO_DEP = 255;
+// blocks per log query: dRPC's free plan only accepts small ranges (~100 blocks); Arc makes ~7 blocks per tick
+const CHUNK = BigInt(Number(process.env.LOG_CHUNK_BLOCKS) || 90);
 
 type State = { lastBlock: string; archivedTo?: string; cases: string[]; panels: string[]; settledDeals: string[]; seen: string[]; jobs?: Job[] };
 
@@ -209,7 +211,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     if (!d.onEvent || !d.archiveFromBlock || state.archivedTo) return;
     let from = d.archiveFromBlock;
     while (from <= until) {
-      const to = until - from > 1999n ? from + 1999n : until;
+      const to = until - from > CHUNK - 1n ? from + CHUNK - 1n : until;
       for (const l of await fetchArchive(from, to)) await archive(l);
       from = to + 1n;
     }
@@ -233,7 +235,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
       if (!state.archivedTo) await backfill(BigInt(state.lastBlock));
       const from = BigInt(state.lastBlock) + 1n;
       if (from > latest) return;
-      const to = latest - from > 1999n ? from + 1999n : latest;
+      const to = latest - from > CHUNK - 1n ? from + CHUNK - 1n : latest;
 
       // ONE log query per tick for every contract and event (Arc's public RPC rate-limits bursts)
       const active = sources.filter((s) => s.address);

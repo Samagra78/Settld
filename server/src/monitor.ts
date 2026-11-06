@@ -83,7 +83,9 @@ async function storyOf(dealId: number): Promise<Step[]> {
 }
 
 export function registerMonitor(app: Express, contracts: Record<string, string | undefined>, explorer: string) {
-  if (process.env.NODE_ENV === 'production') return;
+  const prod = process.env.NODE_ENV === 'production';
+  // hosted: only the read-only monitor, and only when MONITOR_PUBLIC=true (the dev POST helpers stay off)
+  if (prod && process.env.MONITOR_PUBLIC !== 'true') return;
   const here = path.dirname(fileURLToPath(import.meta.url));
   app.get('/monitor', (_req, res) => res.sendFile(path.join(here, '..', 'public', 'monitor.html')));
   app.get('/api/monitor', async (_req, res) => {
@@ -102,6 +104,7 @@ export function registerMonitor(app: Express, contracts: Record<string, string |
     res.set('Cache-Control', 'no-store').json({ dealId, explorer, steps: await storyOf(dealId) });
   });
 
+  if (prod) return;
   // Dev-only helpers used by scripts/e2e-dispute.ts to record the off-chain start of the story
   app.post('/api/monitor/extract', async (req, res) => {
     const text = String(req.body?.text ?? '');

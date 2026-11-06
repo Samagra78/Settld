@@ -9,7 +9,8 @@
     "settle": "bun run settle.ts",
     "use-addresses": "bun use-addresses.ts",
     "e2e-dispute": "bun e2e-dispute.ts",
-    "e2e-checks": "bun e2e-checks.ts"
+    "e2e-checks": "bun e2e-checks.ts",
+    "host-env": "bun host-env.ts"
   },
   "dependencies": {
     "viem": "^2.57.16"

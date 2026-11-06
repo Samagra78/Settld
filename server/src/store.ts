@@ -24,9 +24,21 @@ export async function initStore() {
     await importLegacyFiles();
     return;
   }
-  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 });
-  await client.connect();
-  mongo = client.db(process.env.MONGODB_DB?.trim() || 'settld');
+  if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
+    console.error('[store] MONGODB_URI must be the full connection string starting with mongodb+srv:// — using SQLite for now.');
+    await importLegacyFiles();
+    return;
+  }
+  try {
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 15_000 });
+    await client.connect();
+    mongo = client.db(process.env.MONGODB_DB?.trim() || 'settld');
+  } catch (e) {
+    console.error(`[store] could not connect to MongoDB (${(e as Error).message.split('\n')[0]}) — using SQLite for now.`);
+    mongo = null;
+    await importLegacyFiles();
+    return;
+  }
   await Promise.all([
     mongo.collection('events').createIndex({ name: 1 }),
     mongo.collection('events').createIndex({ block: 1, log_index: 1 }),

@@ -41,7 +41,11 @@ import { registerDevTools } from './devtools.js';
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
-app.use(cors());
+// Hosted with the frontend on another domain: FRONTEND_ORIGIN=https://your-site (comma-separated) allows it to
+// call the API with the login cookie. Unset = same-origin / local dev (Vite proxy).
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use(FRONTEND_ORIGINS.length ? cors({ origin: FRONTEND_ORIGINS, credentials: true }) : cors());
+app.set('trust proxy', 1); // behind the host's HTTPS proxy
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -160,8 +164,8 @@ app.post('/api/session', async (req, res) => {
   });
   res.cookie(COOKIE, sid, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: FRONTEND_ORIGINS.length ? 'none' : 'lax', // cross-site frontend needs none (+ secure)
+    secure: process.env.NODE_ENV === 'production' || FRONTEND_ORIGINS.length > 0,
     maxAge: SESSION_MS,
   });
   res.json({ address: wallet.address, walletId: wallet.id, blockchain: wallet.blockchain });
