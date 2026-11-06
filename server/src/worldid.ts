@@ -181,7 +181,7 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
     if (!registryReady(res)) return;
     const { caseId, band } = req.body ?? {};
     if (!/^\d+$/.test(String(caseId)) || !BANDS.includes(Number(band))) {
-      return res.status(400).json({ message: 'Send caseId and band (0, 50, 80 or 100).' });
+      return res.status(400).json({ message: 'Send caseId and band: 100 (pay the freelancer) or 0 (refund the client).' });
     }
     const { userToken, walletId, address } = d.sessionOf(res);
     const wallet = address.toLowerCase() as Address;
@@ -246,7 +246,8 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
   });
 }
 
-const BANDS = [0, 50, 80, 100];
+// all or nothing: 100 = pay the freelancer the whole clause, 0 = refund the client (JurorRegistry also accepts 50/80)
+const BANDS = [0, 100];
 // caseId:wallet → committed band (memory only; the reveal route also accepts the band again)
 const pendingBands = new Map<string, number>();
 // deterministic per (case, wallet), secret to the server: nobody can recompute it to read a hidden vote

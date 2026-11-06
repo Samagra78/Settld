@@ -29,6 +29,9 @@ ClauseStatus: 0 Pending, 1 Submitted, 2 Verified, 3 Failed, 4 Disputed, 5 Releas
 V1a used only `OneTime` with `POSTED_BY` and `DESC_CONTAINS`. **V2 adds check types 4–7.** Evidence is any string
 passed to `submitEvidence`: a YouTube id, any URL, or an IPFS id of a screenshot (no contract change needed).
 Band (court verdicts): **0 / 50 / 80 / 100** = the freelancer's % of the clause; the rest is refunded to the client.
+**Product rule (Nov 2026): votes are all or nothing.** WF3 judges and the arbitrator vote route only use **100** (pay the
+freelancer the whole clause) or **0** (refund the client). The contracts still accept 50 and 80, so nothing on-chain changed;
+with two choices and three voters there is always a majority, so the "middle band" fallback never applies.
 
 ## Structs (Solidity)
 ```solidity
