@@ -76,7 +76,7 @@ const CLAUSE_SUBMITTED_TOPIC = keccak256(toBytes("ClauseSubmitted(uint256,uint8,
 // Reason codes sent in the report's `value` field (0 = generic)
 const Reason = {
   OK: 0, NOT_FOUND: 1, NOT_PUBLIC: 2, LATE: 3, TEXT_MISSING: 4, UNSUPPORTED: 5,
-  LINK_DOWN: 6, NOT_MERGED: 7, AI_REJECTED: 8, NO_AI: 9,
+  LINK_DOWN: 6, NOT_MERGED: 7, AI_REJECTED: 8, NO_AI: 9, WRONG_CHANNEL: 10,
 } as const;
 
 type Verdict = { pass: boolean; reason: number; detail: string; retry?: boolean };
@@ -90,7 +90,7 @@ type Keys = { youtube: string; groq: string; gemini: string; nvidia: string; git
 const verdictOf = (v: Verdict) => JSON.stringify(v);
 
 /** Pick the right verifier for the clause's check type. */
-const checkEvidence = (
+export const checkEvidence = (
   sr: HTTPSendRequester,
   evidenceStr: string,
   checkType: number,
@@ -208,6 +208,17 @@ const checkWithAI = (
 };
 
 // ---------- YouTube ----------
+/** The channel a POSTED_BY clause names: a channel link, @handle, channel id (UC…) or the exact channel name. */
+export const expectedChannel = (param: string): { id: string; handle: string; name: string } => {
+  const raw = param.trim().replace(/^https?:\/\//i, "").replace(/^(www\.|m\.)?youtube\.com\//i, "");
+  const channel = /^channel\/(UC[\w-]{22})/i.exec(raw);
+  if (channel) return { id: channel[1], handle: "", name: "" };
+  const p = raw.replace(/[/?#].*$/, "");
+  if (/^@[\w.-]+$/.test(p)) return { id: "", handle: p, name: "" };
+  if (/^UC[\w-]{22}$/.test(p)) return { id: p, handle: "", name: "" };
+  return { id: "", handle: "", name: param.trim() };
+};
+
 const checkVideo = (
   sendRequester: HTTPSendRequester,
   videoId: string,
@@ -223,19 +234,34 @@ const checkVideo = (
   let isPublic = false;
   let publishedAt = 0n; // 0 = unknown (oEmbed)
   let text = "";
+  // who posted it: channel id (Data API only), @handle and display name
+  let channelId = "";
+  let channelHandle = "";
+  let channelName = "";
 
   if (apiKey) {
     // Data API: ask only for the fields we need (keeps the response small)
     const url =
       `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${enc(videoId)}` +
-      `&fields=items(snippet(publishedAt,title,description),status(privacyStatus))&key=${enc(apiKey)}`;
+      `&fields=items(snippet(publishedAt,title,description,channelId,channelTitle),status(privacyStatus))&key=${enc(apiKey)}`;
     const res = sendRequester.sendRequest({ url, method: "GET" }).result();
-    if (res.statusCode !== 200) return verdict({ pass: false, reason: Reason.NOT_FOUND, detail: `YouTube API ${res.statusCode}` });
+    if (res.statusCode !== 200) return verdict({ pass: false, reason: Reason.NOT_FOUND, detail: `YouTube API ${res.statusCode}`, retry: transient(res.statusCode) });
     const item = decode(res.body).items?.[0];
     if (!item) return verdict({ pass: false, reason: Reason.NOT_FOUND, detail: "video not found" });
     isPublic = item.status?.privacyStatus === "public";
     publishedAt = BigInt(Math.floor(Date.parse(item.snippet?.publishedAt ?? "") / 1000) || 0);
     text = `${item.snippet?.title ?? ""}\n${item.snippet?.description ?? ""}`;
+    channelId = item.snippet?.channelId ?? "";
+    channelName = item.snippet?.channelTitle ?? "";
+    // the @handle lives on the channel, not the video: one more call, only when the clause names a handle
+    if (checkType === CHECK_POSTED_BY && expectedChannel(param).handle && channelId) {
+      const ch = sendRequester.sendRequest({
+        url: `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${enc(channelId)}&fields=items(snippet(customUrl))&key=${enc(apiKey)}`,
+        method: "GET",
+      }).result();
+      if (ch.statusCode !== 200) return verdict({ pass: false, reason: Reason.NOT_FOUND, detail: `YouTube API ${ch.statusCode} (channel)`, retry: transient(ch.statusCode) });
+      channelHandle = decode(ch.body).items?.[0]?.snippet?.customUrl ?? "";
+    }
   } else {
     // oEmbed: no key needed; 200 = public video, 401/403 = private/unembeddable, 404 = missing
     const watch = `https://www.youtube.com/watch?v=${enc(videoId)}`;
@@ -249,16 +275,34 @@ const checkVideo = (
       return verdict({ pass: false, reason: Reason.NOT_PUBLIC, detail: `video not public (oEmbed ${res.statusCode})` });
     }
     isPublic = true;
-    text = decode(res.body).title ?? "";
+    const body = decode(res.body);
+    text = body.title ?? "";
+    channelName = body.author_name ?? "";
+    // author_url is https://www.youtube.com/@handle
+    channelHandle = /\/(@[^/?#]+)/.exec(body.author_url ?? "")?.[1] ?? "";
   }
 
   if (!isPublic) return verdict({ pass: false, reason: Reason.NOT_PUBLIC, detail: "video is not public" });
 
   if (checkType === CHECK_POSTED_BY) {
+    // the clause must say whose video it is; otherwise anyone's public video would pass
+    const want = expectedChannel(param);
+    if (!want.id && !want.handle && !want.name) {
+      return verdict({ pass: false, reason: Reason.WRONG_CHANNEL, detail: "the clause names no channel, so the poster can't be checked" });
+    }
+    const same = (a: string, b: string) => a !== "" && a.toLowerCase() === b.toLowerCase();
+    const posted = channelHandle || channelName || channelId || "unknown channel";
+    if (want.id && !channelId) {
+      return verdict({ pass: false, reason: Reason.WRONG_CHANNEL, detail: "channel ids can only be checked with the YouTube API key" });
+    }
+    const match = want.id ? same(channelId, want.id) : want.handle ? same(channelHandle, want.handle) : same(channelName.trim(), want.name);
+    if (!match) {
+      return verdict({ pass: false, reason: Reason.WRONG_CHANNEL, detail: `posted by ${posted}, not ${want.id || want.handle || want.name}` });
+    }
     if (publishedAt !== 0n && publishedAt > deadline) {
       return verdict({ pass: false, reason: Reason.LATE, detail: "posted after the deadline" });
     }
-    return verdict({ pass: true, reason: Reason.OK, detail: apiKey ? "public, posted in time" : "public (publish date not checked without API key)" });
+    return verdict({ pass: true, reason: Reason.OK, detail: apiKey ? `public, posted in time by ${posted}` : `public, posted by ${posted} (publish date not checked without API key)` });
   }
 
   if (checkType === CHECK_DESC_CONTAINS) {

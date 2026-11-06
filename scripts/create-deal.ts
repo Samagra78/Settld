@@ -41,7 +41,7 @@ const usdc = (n: string) => parseUnits(n, 6);
 
 const broken = process.argv[2] === "broken";
 const terms = [
-  { kind: 0, checkType: 0, param: "", deadline, amount: usdc("0.6"), dependsOn: broken ? 1 : 255, onFail: 0, vestDays: 0 },
+  { kind: 0, checkType: 0, param: "@RickAstleyYT", deadline, amount: usdc("0.6"), dependsOn: broken ? 1 : 255, onFail: 0, vestDays: 0 },
   { kind: 0, checkType: 1, param: "#TravelCoPartner", deadline, amount: usdc("0.4"), dependsOn: broken ? 255 : 0, onFail: 0, vestDays: 0 },
 ];
 const total = usdc("1");

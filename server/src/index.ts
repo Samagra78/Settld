@@ -528,6 +528,9 @@ function parseClauses(raw: unknown): { terms: (string | number)[][] } | { error:
       return { error: `clause ${i}: kind, checkType and onFail must be 0-255` };
     }
     if (typeof (c.param ?? '') !== 'string') return { error: `clause ${i}: param must be a string` };
+    if (Number(c.checkType) === 0 && !String(c.param ?? '').trim()) {
+      return { error: `Promise ${i + 1} (YouTube posted) needs the freelancer's channel, e.g. @handle or a channel link. Otherwise anyone's video would pass.` };
+    }
     if (!isU64(c.deadline)) return { error: `clause ${i}: deadline must be unix seconds` };
     if (!isUnits(c.amount)) return { error: `clause ${i}: amount must be a positive integer (6-decimal units)` };
     const dependsOn = c.dependsOn ?? NO_DEPENDENCY;

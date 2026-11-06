@@ -40,7 +40,8 @@ export const CheckType = {
   URL_LIVE: 4, URL_CONTAINS: 5, GITHUB_MERGED: 6, AI_CHECK: 7,
 } as const;
 export const SUPPORTED_CHECKS: readonly number[] = [0, 1, 4, 5, 6, 7];
-const NEEDS_PARAM: readonly number[] = [CheckType.DESC_CONTAINS, CheckType.URL_CONTAINS, CheckType.AI_CHECK];
+// POSTED_BY needs the channel: without it any public video would pass
+const NEEDS_PARAM: readonly number[] = [CheckType.POSTED_BY, CheckType.DESC_CONTAINS, CheckType.URL_CONTAINS, CheckType.AI_CHECK];
 export const CHECK_NAME: Record<number, string> = {
   0: "YouTube: posted by the freelancer",
   1: "YouTube: description contains text",
@@ -173,7 +174,9 @@ function staticErrors(terms: ClauseTerms[], total: bigint): string[] {
     if (!SUPPORTED_CHECKS.includes(t.checkType)) {
       errors.push(`C${i} uses check type ${t.checkType}, which Chainlink can't verify yet.`);
     } else if (NEEDS_PARAM.includes(t.checkType) && t.param.trim() === "") {
-      errors.push(`C${i} (${CHECK_NAME[t.checkType]}) needs the text or criteria to check for.`);
+      errors.push(t.checkType === CheckType.POSTED_BY
+        ? `C${i} (${CHECK_NAME[t.checkType]}) needs the freelancer's YouTube channel (@handle or channel link), or anyone's video would pass.`
+        : `C${i} (${CHECK_NAME[t.checkType]}) needs the text or criteria to check for.`);
     }
     if (t.dependsOn !== NO_DEPENDENCY) {
       if (t.dependsOn === i) errors.push(`C${i} depends on itself.`);

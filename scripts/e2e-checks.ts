@@ -50,7 +50,8 @@ const EACH = parseUnits("0.1", 6);
 const deadline = BigInt(Math.floor(Date.now() / 1000) + 3 * 86400);
 const YOUTUBE = process.argv.includes("--youtube");
 const cases = YOUTUBE ? [
-  { checkType: 0, param: "", evidence: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", label: "YouTube posted before the deadline" },
+  { checkType: 0, param: "@RickAstleyYT", evidence: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", label: "YouTube posted by the right channel before the deadline" },
+  { checkType: 0, param: "@roti.sounds", evidence: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", label: "YouTube posted by a different channel (should FAIL)" },
   { checkType: 1, param: "Autobiography", evidence: "https://youtu.be/dQw4w9WgXcQ", label: "YouTube description contains \"Autobiography\" (not in the title)" },
   { checkType: 1, param: "#TravelCoPartner", evidence: "dQw4w9WgXcQ", label: "YouTube description contains a missing hashtag (should FAIL)" },
 ] : [
