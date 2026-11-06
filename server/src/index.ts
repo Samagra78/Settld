@@ -242,11 +242,11 @@ const contractCall = (
   if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
     return Promise.resolve({ status: 503, ok: false, json: { message: escrowUnavailable } });
   }
-  return circle('/v1/w3s/user/transactions/contractExecution', {
+  const send = (withAmount: boolean, idempotencyKey: string) => circle('/v1/w3s/user/transactions/contractExecution', {
     method: 'POST',
     userToken,
     body: {
-      idempotencyKey: refId ?? crypto.randomUUID(),
+      idempotencyKey,
       ...(refId && { refId }),
       walletId,
       contractAddress,
@@ -255,7 +255,15 @@ const contractCall = (
       // user-controlled wallets take a flat feeLevel; the nested `fee` object is ignored and Circle
       // then rejects the call ("gasPrice may not be empty when FeeLevel ... are not set")
       feeLevel: 'MEDIUM',
+      // "0 USDC sent with this call", so Circle's PIN screen can show 0 instead of a blank amount.
+      // amount = native USDC actually sent WITH the transaction, so it must stay 0: nothing moves here.
+      ...(withAmount && { amount: '0' }),
     },
+  });
+  return send(true, refId ?? crypto.randomUUID()).then((r) => {
+    // if Circle refuses an amount on a non-payable call, retry once without it (fresh idempotency key)
+    const msg = JSON.stringify(r.json ?? {}).toLowerCase();
+    return !r.ok && msg.includes('amount') ? send(false, crypto.randomUUID()) : r;
   });
 };
 
@@ -553,6 +561,18 @@ app.post('/api/escrow/propose', requireWallet, async (req, res) => {
   const hex = String(creator).slice(2).toLowerCase();
   if ((hex.match(/0/g)?.length ?? 0) >= 30 || new Set(hex).size <= 2 || /dead$/.test(hex)) {
     return bad(res, 'That looks like a placeholder address, not a real wallet. Use the freelancer’s own wallet address.');
+  }
+  // the client must already hold the deal total (nothing is locked now; funding happens after accept + certify)
+  try {
+    const balance = await arc.readContract({
+      address: USDC_ADDRESS as Address, abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+      functionName: 'balanceOf', args: [sessionOf(res).address as Address],
+    });
+    if (balance < BigInt(total)) {
+      return bad(res, `You need ${formatUnits(BigInt(total), 6)} USDC in your wallet to propose this deal (you have ${formatUnits(balance, 6)}). Nothing is charged now — you fund it after the freelancer accepts.`);
+    }
+  } catch {
+    return res.status(502).json({ message: 'Could not check your USDC balance on Arc. Try again.' });
   }
   // dry-run first, so a deal the contract would reject fails here with the reason, not after the PIN
   const termsForSim = parsed.terms.map((t) => ({
