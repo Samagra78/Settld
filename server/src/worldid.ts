@@ -134,6 +134,13 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
         lastError = { host: base, status: r.status, code: verification?.code, detail: verification?.detail ?? verification };
         console.warn('[worldid] verify rejected:', JSON.stringify(lastError).slice(0, 500));
       }
+      if (lastError && ENVIRONMENT() === 'staging' && /integrity/i.test(String(lastError.code ?? ''))) {
+        // real World App proofs carry a device integrity bundle; a staging request only accepts the Simulator
+        return res.status(400).json({
+          message: 'Settld is using World ID’s test mode (staging), which only accepts the World ID Simulator, not the real World App. Open the link in simulator.worldcoin.org instead.',
+          ...lastError,
+        });
+      }
       if (lastError) {
         return res.status(400).json({
           message: `World ID could not verify this proof (${lastError.code ?? lastError.status}: ${typeof lastError.detail === 'string' ? lastError.detail : 'see server log'}).`,
