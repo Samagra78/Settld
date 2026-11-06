@@ -491,17 +491,20 @@ async function checkEscrowAction(res: Response, action: string, args: unknown[])
 }
 
 // Circle's transaction list for user-controlled wallets does not echo our refId back, so the server remembers each
-// tracked action (wallet, refId, time) and tags the matching escrow transaction in GET /api/transactions.
-const trackedActions = new Map<string, { refId: string; at: number }[]>();
+// tracked action (wallet, contract, refId, time) and tags the matching transaction in GET /api/transactions.
+const trackedActions = new Map<string, { refId: string; at: number; contract: string }[]>();
 
-async function prepareTrackedEscrowAction(res: Response, signature: string, args: unknown[]) {
+const prepareTrackedEscrowAction = (res: Response, signature: string, args: unknown[]) =>
+  prepareTrackedAction(res, ESCROW_ADDRESS, signature, args);
+
+async function prepareTrackedAction(res: Response, contract: string, signature: string, args: unknown[]) {
   const { walletId, userToken } = sessionOf(res);
   const refId = crypto.randomUUID();
   try {
-    const result = await contractCall(userToken, walletId, ESCROW_ADDRESS, signature, args, refId);
+    const result = await contractCall(userToken, walletId, contract, signature, args, refId);
     if (!result.ok) return reply(res, result);
     const list = (trackedActions.get(walletId) ?? []).filter((a) => Date.now() - a.at < 30 * 60_000);
-    list.push({ refId, at: Date.now() - 5_000 });
+    list.push({ refId, at: Date.now() - 5_000, contract: contract.toLowerCase() });
     trackedActions.set(walletId, list.slice(-20));
     res.status(result.status).json({ ...(result.json.data as { challengeId: string }), refId });
   } catch {
@@ -623,6 +626,38 @@ app.post('/api/escrow/refund', requireWallet, async (req, res) => {
   await prepareTrackedEscrowAction(res, 'refund(uint256,uint8)', [String(dealId), String(clauseId)]);
 });
 
+// 7c. Send USDC from the signed-in wallet: body { to: 0x address, amount: 6-decimal units }.
+// Returns { challengeId, refId }; the user approves with their PIN, then polls /api/transactions for refId.
+// Any well-formed address can receive on-chain, so "does this wallet exist" can't be proven; we refuse the
+// cases that are certainly wrong (not an address, placeholders, yourself, the escrow/USDC contracts, short balance).
+app.post('/api/wallet/send', requireWallet, async (req, res) => {
+  const to = String(req.body?.to ?? '').trim();
+  const amount = String(req.body?.amount ?? '');
+  if (!isAddress(to, { strict: false })) return bad(res, 'Send to a wallet address: 0x followed by 40 characters. Emails aren’t supported yet.');
+  if (!isUnits(amount)) return bad(res, 'Enter an amount above 0.');
+  const hex = to.slice(2).toLowerCase();
+  if ((hex.match(/0/g)?.length ?? 0) >= 30 || new Set(hex).size <= 2 || /dead$/.test(hex)) {
+    return bad(res, 'That looks like a placeholder address, not a real wallet. Money sent there is lost.');
+  }
+  const me = sessionOf(res).address.toLowerCase();
+  if (to.toLowerCase() === me) return bad(res, 'That’s your own wallet.');
+  if ([ESCROW_ADDRESS, USDC_ADDRESS].some((a) => a.toLowerCase() === to.toLowerCase())) {
+    return bad(res, 'That’s a Settld contract address, not a wallet. USDC sent there can’t be recovered.');
+  }
+  try {
+    const balance = await arc.readContract({
+      address: USDC_ADDRESS as Address, abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+      functionName: 'balanceOf', args: [me as Address],
+    });
+    if (balance < BigInt(amount)) {
+      return bad(res, `You have ${formatUnits(balance, 6)} USDC, less than the ${formatUnits(BigInt(amount), 6)} you’re sending.`);
+    }
+  } catch {
+    return res.status(502).json({ message: 'Could not check your USDC balance on Arc. Try again.' });
+  }
+  await prepareTrackedAction(res, USDC_ADDRESS, 'transfer(address,uint256)', [to, amount]);
+});
+
 // 8. Recent transactions for the signed-in wallet (poll for state + txHash)
 app.get('/api/transactions', requireWallet, async (_req, res) => {
   const { walletId, userToken } = sessionOf(res);
@@ -632,14 +667,15 @@ app.get('/api/transactions', requireWallet, async (_req, res) => {
   type Tx = { refId?: string; contractAddress?: string; operation?: string; createDate?: string };
   const data = r.json.data as { transactions?: Tx[] };
   const txs = data.transactions ?? [];
-  // put our refId back on the escrow transaction each tracked action produced: the first one created after it
-  const escrowTxs = txs
-    .filter((t) => t.operation === 'CONTRACT_EXECUTION' && t.contractAddress?.toLowerCase() === ESCROW_ADDRESS.toLowerCase())
+  // put our refId back on the transaction each tracked action produced: the first one to the same contract after it
+  const callTxs = txs
+    .filter((t) => t.operation === 'CONTRACT_EXECUTION')
     .sort((a, b) => Date.parse(a.createDate ?? '') - Date.parse(b.createDate ?? ''));
-  const used = new Set<Tx>(escrowTxs.filter((t) => t.refId));
+  const used = new Set<Tx>(callTxs.filter((t) => t.refId));
   for (const action of trackedActions.get(walletId) ?? []) {
-    if (escrowTxs.some((t) => t.refId === action.refId)) continue;
-    const match = escrowTxs.find((t) => !used.has(t) && Date.parse(t.createDate ?? '') >= action.at);
+    if (callTxs.some((t) => t.refId === action.refId)) continue;
+    const match = callTxs.find((t) => !used.has(t) && t.contractAddress?.toLowerCase() === action.contract
+      && Date.parse(t.createDate ?? '') >= action.at);
     if (match) { match.refId = action.refId; used.add(match); }
   }
   res.status(r.status).json(data);
