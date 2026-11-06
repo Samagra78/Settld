@@ -27,6 +27,19 @@
     .flow { display:flex; gap:6px; flex-wrap:wrap; font-size:12px; }
     .flow span { padding:2px 8px; border-radius:6px; background:#22252b; color:var(--muted); }
     .flow span.on { background:#1d3b2e; color:var(--ok); }
+    select { background:#22252b; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 8px; }
+    .journey { list-style:none; padding:0; margin:12px 0; display:flex; gap:6px; flex-wrap:wrap; }
+    .journey li { padding:4px 10px; border-radius:99px; background:#22252b; color:var(--muted); font-size:12px; }
+    .journey li.done { background:#1d3b2e; color:var(--ok); }
+    .journey li.now { background:#2a3a66; color:#fff; }
+    .phase { margin:14px 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+    .step { display:grid; grid-template-columns: 28px 1fr; gap:8px; padding:8px 10px; border-radius:10px; }
+    .step + .step { margin-top:4px; }
+    .step.latest { background:#1f2a44; outline:1px solid #34508f; }
+    .step .ic { font-size:18px; line-height:1.2; }
+    .step .t { font-weight:600; }
+    .step .d { color:var(--muted); white-space:pre-wrap; margin-top:2px; }
+    .step .meta { font-size:12px; color:var(--muted); margin-top:2px; }
   </style>
 </head>
 <body>
@@ -39,7 +52,16 @@
     <div class="muted" id="updated">loading…</div>
   </header>
 
-  <div class="stats" id="stats"></div>
+  <section class="card story-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+      <h2 style="margin:0">The whole story of a deal, step by step</h2>
+      <label class="muted">Deal <select id="dealPick"></select></label>
+    </div>
+    <ol class="journey" id="journey"></ol>
+    <div id="story" class="story"><p class="muted">Waiting for a deal…</p></div>
+  </section>
+
+  <div class="stats" id="stats" style="margin-top:12px"></div>
 
   <div class="grid" style="margin-top:12px">
     <section class="card">
@@ -114,8 +136,42 @@
       $("updated").innerHTML = '<span class="bad">server unreachable</span>';
     }
   }
+  // ---------- the story of one deal ----------
+  const PHASES = ["Agreeing the contract", "Doing the work", "Checking the work", "Questioning the result", "AI court", "Human arbitrators", "Final decision", "Getting paid"];
+  let picked = null, knownDeals = "";
+  async function storyTick() {
+    try {
+      const m = await fetch("/api/monitor").then((r) => r.json());
+      const ids = m.deals.map((d) => d.deal_id);
+      const sel = $("dealPick");
+      if (ids.join(",") !== knownDeals) {
+        knownDeals = ids.join(",");
+        const keep = picked && ids.includes(picked) ? picked : ids[0];
+        sel.innerHTML = ids.map((id) => `<option value="${id}">#${id}</option>`).join("");
+        if (keep) sel.value = String(keep);
+        picked = keep;
+      }
+      sel.onchange = () => { picked = Number(sel.value); storyTick(); };
+      if (!picked) return;
+      const s = await fetch("/api/monitor/story/" + picked).then((r) => r.json());
+      const seen = new Set(s.steps.map((x) => x.phase));
+      const current = s.steps.length ? s.steps[s.steps.length - 1].phase : null;
+      $("journey").innerHTML = PHASES.map((p) => `<li class="${p === current ? "now" : seen.has(p) ? "done" : ""}">${p}</li>`).join("");
+      let html = "", lastPhase = "";
+      s.steps.forEach((st, i) => {
+        if (st.phase !== lastPhase) { html += `<div class="phase">${esc(st.phase)}</div>`; lastPhase = st.phase; }
+        html += `<div class="step ${i === s.steps.length - 1 ? "latest" : ""}"><div class="ic">${esc(st.icon)}</div><div>
+          <div class="t">${esc(st.title)}</div>${st.detail ? `<div class="d">${esc(st.detail)}</div>` : ""}
+          <div class="meta">${ago(st.at)}${st.tx ? " · " + tx(st.tx) : ""}</div></div></div>`;
+      });
+      $("story").innerHTML = html || '<p class="muted">Nothing yet for this deal.</p>';
+    } catch {}
+  }
+
   tick();
+  storyTick();
   setInterval(tick, 4000);
+  setInterval(storyTick, 4000);
 </script>
 </body>
 </html>

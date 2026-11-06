@@ -154,12 +154,21 @@ export function registerExtractRoutes(app: Express, requireWallet: (req: Request
   app.post('/api/clauses/extract', requireWallet, async (req, res) => {
     const text = String(req.body?.text ?? '');
     if (text.trim().length < 20 || text.length > 8000) return res.status(400).json({ message: 'Paste the contract text (20–8000 characters).' });
-    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.startDate)) ? String(req.body.startDate) : new Date().toISOString().slice(0, 10);
+    const r = await extractClauses(text, String(req.body?.startDate ?? ''));
+    if (!r) return res.status(502).json({ message: 'The AI models did not answer. Try again, or enter clauses by hand.' });
+    res.json(r);
+  });
+}
+
+/** The extraction itself (also used by the dev monitor's story mode). null = no model answered. */
+export async function extractClauses(text: string, startDateIn = '') {
+  {
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(startDateIn) ? startDateIn : new Date().toISOString().slice(0, 10);
     const sentences = splitSentences(text);
     const p = prompt(sentences, startDate);
 
     const [g, q] = await Promise.all([askGemini(p), askGroq(p)]);
-    if (!g && !q) return res.status(502).json({ message: 'The AI models did not answer. Try again, or enter clauses by hand.' });
+    if (!g && !q) return null;
     const primary = normalize(g ?? q, sentences.length);
     const cross = normalize(g && q ? q : null, sentences.length);
 
@@ -176,12 +185,12 @@ export function registerExtractRoutes(app: Express, requireWallet: (req: Request
       clause: owner.has(i) ? owner.get(i)! : null,
       note: owner.has(i) ? null : primary.notDeliverables.get(i) ?? null,
     }));
-    res.json({
+    return {
       sentences: out,
       clauses,
       unaccounted: out.filter((s) => s.clause === null && !s.note).map((s) => s.id),
       models: { primary: g ? 'gemini-3.5-flash-lite' : 'openai/gpt-oss-120b (Groq)', crossCheck: g && q ? 'openai/gpt-oss-120b (Groq)' : null },
       note: 'Amounts are never set by the AI. Review each clause, set amounts, then the deadlock checker and Chainlink certify.',
-    });
-  });
+    };
+  }
 }

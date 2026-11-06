@@ -54,6 +54,10 @@ const ARCHIVE = {
     'event DealFunded(uint256 indexed dealId, uint256 total)',
     'event ClauseSubmitted(uint256 indexed dealId, uint8 clauseId, string videoId)',
     'event ClauseDisputed(uint256 indexed dealId, uint8 clauseId, uint256 caseId, address indexed disputer, string reason)',
+    'event ClauseVerified(uint256 indexed dealId, uint8 clauseId)',
+    'event ClauseFailed(uint256 indexed dealId, uint8 clauseId)',
+    'event ClauseSettled(uint256 indexed dealId, uint8 clauseId, uint8 status, uint256 amount)',
+    'event ClauseSplit(uint256 indexed dealId, uint8 clauseId, uint256 toFreelancer, uint256 toClient)',
   ]),
   court: parseAbi([
     'event CaseOpened(uint256 indexed caseId, uint256 dealId, uint8 clauseId, string reason, uint64 deadline)',
