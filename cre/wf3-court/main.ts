@@ -9,7 +9,7 @@
 // Each round (every node runs it; they must agree):
 //   - Load the transcript: built from the chain on round 0; later fetched from the Settld server and checked
 //     against the transcriptHash recorded on-chain, so the server can't change what the judges said.
-//   - Ask each non-final judge (Groq Llama, Gemini, OpenRouter free model) with guardrails; enforce the
+//   - Ask each non-final judge (Groq Llama, Gemini, NVIDIA NIM Mistral) with guardrails; enforce the
 //     word budget, the evidence-citation rule and the extension rule (court.ts).
 //   - Store the new transcript on the server, then send a Round report (kind 6) to AICourt with the
 //     bands, word counts, extend votes, final flags, cited evidence and the transcript hash.
@@ -151,8 +151,8 @@ const secret = (runtime: Runtime<Config>, id: string) => {
 
 const keysOf = (runtime: Runtime<Config>): Keys =>
   runtime.config.replay
-    ? { groq: "", gemini: "", openrouter: "" }
-    : { groq: secret(runtime, "GROQ_API_KEY"), gemini: secret(runtime, "GEMINI_API_KEY"), openrouter: secret(runtime, "OPENROUTER_API_KEY") };
+    ? { groq: "", gemini: "", nvidia: "" }
+    : { groq: secret(runtime, "GROQ_API_KEY"), gemini: secret(runtime, "GEMINI_API_KEY"), nvidia: secret(runtime, "NVIDIA_API_KEY") };
 
 const nowSec = (runtime: Runtime<Config>) => Math.floor(runtime.now().getTime() / 1000);
 

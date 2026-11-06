@@ -1,7 +1,7 @@
 // Shared helpers for the AI parts of Settld's CRE workflows (WF1 AI_CHECK and WF3 AI court).
 //
 // - 3 judges from 3 different model families, all on FREE tiers (hackathon-friendly, $0 inference):
-//     0 = Groq (Llama 3.3 70B), 1 = Google Gemini Flash, 2 = OpenRouter free model (Mistral by default)
+//     0 = Groq (Llama 3.3 70B), 1 = Google Gemini Flash, 2 = NVIDIA NIM (Mistral Small; free developer credits at build.nvidia.com)
 // - Temperature 0 and JSON-only answers, so the output is a small structured verdict.
 // - Guardrails: evidence is wrapped and labelled as DATA; the model is told to ignore instructions in it.
 // - Replay mode: canned answers instead of live calls, for a deterministic demo or when a free API rate-limits.
@@ -31,20 +31,20 @@ export function toBase64(bytes: Uint8Array): string {
   return out;
 }
 
-export type Provider = "groq" | "gemini" | "openrouter";
+export type Provider = "groq" | "gemini" | "nvidia";
 export type Judge = { name: string; provider: Provider; model: string };
 
 export const DEFAULT_JUDGES: Judge[] = [
   { name: "Llama (Groq)", provider: "groq", model: "llama-3.3-70b-versatile" },
   { name: "Gemini", provider: "gemini", model: "gemini-2.5-flash" },
-  { name: "Mistral (OpenRouter)", provider: "openrouter", model: "mistralai/mistral-small-3.2-24b-instruct:free" },
+  { name: "Mistral (NVIDIA)", provider: "nvidia", model: "mistralai/mistral-small-24b-instruct" },
 ];
 
 // Secret ids (cre/secrets.yaml) per provider
 export const SECRET_ID: Record<Provider, string> = {
   groq: "GROQ_API_KEY",
   gemini: "GEMINI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
+  nvidia: "NVIDIA_API_KEY",
 };
 
 export const GUARDRAIL = [
@@ -116,11 +116,11 @@ export function askJudge(
       return j.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
     }
 
-    // Groq and OpenRouter both speak the OpenAI chat-completions format
+    // Groq and NVIDIA NIM both speak the OpenAI chat-completions format
     const url =
       judge.provider === "groq"
         ? "https://api.groq.com/openai/v1/chat/completions"
-        : "https://openrouter.ai/api/v1/chat/completions";
+        : "https://integrate.api.nvidia.com/v1/chat/completions";
     const res = sr.sendRequest({
       url,
       method: "POST",
@@ -129,7 +129,8 @@ export function askJudge(
         model: judge.model,
         temperature: 0,
         max_tokens: maxTokens,
-        response_format: { type: "json_object" },
+        // Groq supports JSON mode; NVIDIA models vary, so there we rely on the prompt + parseJson
+        ...(judge.provider === "groq" ? { response_format: { type: "json_object" } } : {}),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

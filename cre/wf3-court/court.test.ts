@@ -13,7 +13,7 @@ const fresh = (): Transcript => ({
   terms: "Landing page with the client's logo and a working signup form. 100 USDC.",
   evidence: "https://example.com/landing", evidenceText: "Welcome. Sign up: [email] [Join]",
   deadline0: OPENED + BASE_SECS,
-  judges: ["Llama (Groq)", "Gemini", "Mistral (OpenRouter)"],
+  judges: ["Llama (Groq)", "Gemini", "Mistral (NVIDIA)"],
   rounds: [],
 });
 const replayAsk = (round: number) => (judge: number) => JSON.stringify((replay.rounds as unknown[][])[round]?.[judge] ?? "");

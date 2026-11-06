@@ -82,7 +82,7 @@ const Reason = {
 type Verdict = { pass: boolean; reason: number; detail: string };
 
 // ---------- any-link checks (runs on every node; nodes must return identical verdicts) ----------
-type Keys = { youtube: string; groq: string; gemini: string; openrouter: string };
+type Keys = { youtube: string; groq: string; gemini: string; nvidia: string };
 
 const verdictOf = (v: Verdict) => JSON.stringify(v);
 
@@ -187,7 +187,7 @@ const checkWithAI = (
       evidence(1, "submitted work", content),
       'Does the submitted work meet the criteria? Answer exactly {"pass": true} or {"pass": false}.',
     ].join("\n\n");
-    const keyOf = { groq: keys.groq, gemini: keys.gemini, openrouter: keys.openrouter };
+    const keyOf = { groq: keys.groq, gemini: keys.gemini, nvidia: keys.nvidia };
     votes = [];
     for (const judge of DEFAULT_JUDGES) {
       const answer = parseJson<{ pass?: boolean }>(askJudge(sr, judge, keyOf[judge.provider], GUARDRAIL, user, 50));
@@ -318,7 +318,7 @@ export const onClauseSubmitted = (runtime: Runtime<Config>, log: EVMLog): string
     youtube: clause.checkType <= CHECK_DESC_CONTAINS ? secret("YOUTUBE_API_KEY") : "",
     groq: needsAI ? secret("GROQ_API_KEY") : "",
     gemini: needsAI ? secret("GEMINI_API_KEY") : "",
-    openrouter: needsAI ? secret("OPENROUTER_API_KEY") : "",
+    nvidia: needsAI ? secret("NVIDIA_API_KEY") : "",
   };
   const http = new HTTPClient();
   const verdictJson = http
