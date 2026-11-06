@@ -2,6 +2,17 @@ import 'dotenv/config';
 import axios from 'axios';
 import cors from 'cors';
 import express, { type Response } from 'express';
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  parseAbi,
+  parseUnits,
+  type Address,
+  type Hex,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -145,6 +156,59 @@ app.post('/api/escrow/release', async (req, res) => {
 app.post('/api/transactions', async (req, res) => {
   const { userToken, walletId } = req.body;
   reply(res, await circle(`/v1/w3s/transactions?walletIds=${walletId}`, { userToken }));
+});
+
+// ---- Mock "add funds" (testnet only) ----------------------------------------
+// Pretends to be a card top-up. A test-only treasury wallet sends 10 test USDC
+// to the logged-in user's own wallet. The treasury key is a plain test key
+// (TREASURY_PRIVATE_KEY in server/.env); never reuse it on mainnet.
+
+const TOP_UP_USDC = '10';
+const TOP_UP_COOLDOWN_MS = 30_000;
+const lastTopUp = new Map<string, number>();
+
+const arcTestnet = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? 'https://rpc.testnet.arc.network'] } },
+});
+
+// 9. Send TOP_UP_USDC from the treasury to the caller's own wallet
+app.post('/api/funds/add', async (req, res) => {
+  try {
+    const key = process.env.TREASURY_PRIVATE_KEY as Hex | undefined;
+    if (!key) return res.status(500).json({ message: 'Treasury not configured' });
+
+    // Resolve the destination from the user's token, never from the request body
+    const w = await circle('/v1/w3s/wallets', { userToken: req.body.userToken });
+    if (!w.ok) return res.status(w.status).json(w.json);
+    const wallets = (w.json.data as { wallets: { address: string }[] }).wallets;
+    if (!wallets?.length) return res.status(400).json({ message: 'User has no wallet yet' });
+    const to = wallets[0].address as Address;
+
+    const last = lastTopUp.get(to.toLowerCase()) ?? 0;
+    if (Date.now() - last < TOP_UP_COOLDOWN_MS) {
+      return res.status(429).json({ message: 'Please wait a few seconds between top-ups' });
+    }
+    lastTopUp.set(to.toLowerCase(), Date.now());
+
+    const account = privateKeyToAccount(key);
+    const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
+    const pub = createPublicClient({ chain: arcTestnet, transport: http() });
+
+    const txHash = await wallet.writeContract({
+      address: USDC_ADDRESS as Address,
+      abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
+      functionName: 'transfer',
+      args: [to, parseUnits(TOP_UP_USDC, 6)],
+    });
+    await pub.waitForTransactionReceipt({ hash: txHash });
+    res.json({ txHash, amount: TOP_UP_USDC, to });
+  } catch (e) {
+    console.error('funds/add failed:', e);
+    res.status(500).json({ message: (e as Error).message.split('\n')[0] });
+  }
 });
 
 // Routes added step by step (see docs/INTERFACES.md):
