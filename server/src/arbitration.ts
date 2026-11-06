@@ -130,14 +130,16 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
       const [cases, withMajority, strikes, suspended] = await d.arc.readContract({
         address: registry!, abi: registryAbi, functionName: 'profile', args: [res.locals.nullifier as bigint],
       });
-      const history = await Promise.all((await store.casesOfArbitrator(wallet)).map(async (row) => {
+      // demo cases (scripts/demo-cases.ts) are recorded under arbitrator "demo" and shown to every arbitrator
+      const rows = [...await store.casesOfArbitrator(wallet), ...await store.casesOfArbitrator('demo')];
+      const history = await Promise.all(rows.map(async (row) => {
         const closed = row.in_majority !== null && row.in_majority !== undefined;
         const majority = closed ? (await store.panelVotes(Number(row.case_id))).filter((v) => v.in_majority === 1).length : 0;
         const fee = row.in_majority === 1 && row.status === 'final' && majority
           ? (BigInt(String((await store.getCase(Number(row.case_id)))?.appeal_fee ?? '0')) / BigInt(majority)).toString()
           : '0';
         return {
-          caseId: row.case_id, dealId: row.deal_id, clauseId: row.clause_id, reason: row.reason,
+          caseId: row.case_id, dealId: row.deal_id, clauseId: row.clause_id, reason: row.reason, demo: !!row.demo,
           myBand: row.revealed ? row.band : null, revealed: !!row.revealed,
           aiBand: row.ai_band, panelBand: row.panel_band, finalBand: row.final_band,
           outcome: !closed ? 'pending' : row.in_majority === 1 ? 'with_majority' : 'against_majority',
@@ -169,6 +171,16 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
     try {
       const out = [];
       for (const row of await store.openPanels()) {
+        if (row.demo) {
+          // demo case: not on-chain, so nobody can take its seat; the commit window just stays open
+          const now = Math.floor(Date.now() / 1000);
+          out.push({
+            caseId: row.case_id, dealId: row.deal_id, clauseId: row.clause_id, reason: row.reason, aiBand: row.ai_band, demo: true,
+            commitDeadline: now + 6 * 3600, revealDeadline: now + 6 * 3600 + 60, seatsTaken: Number(row.seats_taken ?? 0), reveals: 0,
+            mySeat: false, canJoin: false, blockedReason: 'Demo case: for show only',
+          });
+          continue;
+        }
         const caseId = BigInt(String(row.case_id));
         const [client, freelancer, commitDeadline, revealEnd, commits, reveals, , closed] = await d.arc.readContract({
           address: registry!, abi: registryAbi, functionName: 'getPanel', args: [caseId],

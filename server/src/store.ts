@@ -311,9 +311,9 @@ export async function stats() {
     const [verifiedHumans, arbitrators, openPanels, casesDecided, decidedByHumans] = await Promise.all([
       mongo.collection('people').countDocuments({}),
       mongo.collection('people').countDocuments({ arbitrator: 1 }),
-      mongo.collection('cases').countDocuments({ panel_open: 1 }),
-      mongo.collection('cases').countDocuments({ status: 'final' }),
-      mongo.collection('cases').countDocuments({ status: 'final', by_humans: 1 }),
+      mongo.collection('cases').countDocuments({ panel_open: 1, demo: { $ne: true } }),
+      mongo.collection('cases').countDocuments({ status: 'final', demo: { $ne: true } }),
+      mongo.collection('cases').countDocuments({ status: 'final', by_humans: 1, demo: { $ne: true } }),
     ]);
     return { verifiedHumans, arbitrators, openPanels, casesDecided, decidedByHumans };
   }
@@ -356,7 +356,7 @@ export async function casesOfArbitrator(wallet: string): Promise<Row[]> {
     const vs = await mongo.collection('panel_votes').find({ arbitrator: lc(wallet) }).sort({ case_id: -1 }).toArray();
     return Promise.all(vs.map(async (v) => {
       const c = await mongo!.collection('cases').findOne({ _id: v.case_id });
-      return { ...clean(v), deal_id: c?.deal_id, clause_id: c?.clause_id, reason: c?.reason, ai_band: c?.ai_band, panel_band: c?.panel_band, final_band: c?.final_band, status: c?.status, finalized_at: c?.finalized_at };
+      return { ...clean(v), demo: !!c?.demo, deal_id: c?.deal_id, clause_id: c?.clause_id, reason: c?.reason, ai_band: c?.ai_band, panel_band: c?.panel_band, final_band: c?.final_band, status: c?.status, finalized_at: c?.finalized_at };
     }));
   }
   return sqlite.prepare(`SELECT v.*, c.deal_id, c.clause_id, c.reason, c.ai_band, c.panel_band, c.final_band, c.status, c.finalized_at
