@@ -123,10 +123,28 @@ const toUrl = (s: string) => {
   return /^https?:\/\//i.test(s) ? s : "";
 };
 
+// CRE refuses any HTTP response over 250 KB (simulation and production alike) and the whole run then fails.
+// Catch that, so an oversized page becomes a clear verdict instead of a run that retries and gives up.
+const MAX_BODY = 250_000;
+const isYoutube = (s: string) => /(^|\/\/|\.)(youtube\.com|youtu\.be)\//i.test(s);
+const fetchPage = (sr: HTTPSendRequester, url: string): { statusCode: number; body: Uint8Array } | { tooBig: true } => {
+  try {
+    // ask for only the first part; servers that honour Range keep us under the limit
+    return sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0", Range: `bytes=0-${MAX_BODY - 10_000}` } }).result();
+  } catch (e) {
+    if (/exceeds|ResourceExhausted|too large/i.test(String((e as Error)?.message ?? e))) return { tooBig: true };
+    throw e;
+  }
+};
+const tooBigVerdict = () =>
+  verdictOf({ pass: false, reason: Reason.UNSUPPORTED, detail: "the linked page is over 250 KB, more than Chainlink can read; link a lighter page or dispute it" });
+
 const checkUrl = (sr: HTTPSendRequester, ev: string, checkType: number, param: string): string => {
   const url = toUrl(ev);
   if (!url) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "evidence is not a link" });
-  const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
+  const page = fetchPage(sr, url);
+  if ("tooBig" in page) return tooBigVerdict();
+  const res = page;
   if (res.statusCode < 200 || res.statusCode >= 400) {
     return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}`, retry: transient(res.statusCode) });
   }
@@ -163,6 +181,30 @@ const checkGithub = (sr: HTTPSendRequester, ev: string, param: string, token: st
 };
 
 /** AI_CHECK: 3 free models each say pass/fail against the criteria; majority wins. */
+/** A YouTube video as text for the AI judges: Data API (title, channel, description) or, without a key, oEmbed. */
+const youtubeText = (sr: HTTPSendRequester, videoId: string, apiKey: string): { text: string } | { verdict: string } => {
+  const enc = encodeURIComponent;
+  const json = (b: Uint8Array) => JSON.parse(new TextDecoder().decode(b));
+  if (apiKey) {
+    const res = sr.sendRequest({
+      url: `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${enc(videoId)}&fields=items(snippet(title,description,channelTitle),status(privacyStatus))&key=${enc(apiKey)}`,
+      method: "GET",
+    }).result();
+    if (res.statusCode !== 200) return { verdict: verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: `YouTube API ${res.statusCode}`, retry: transient(res.statusCode) }) };
+    const item = json(res.body).items?.[0];
+    if (!item) return { verdict: verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "video not found" }) };
+    if (item.status?.privacyStatus !== "public") return { verdict: verdictOf({ pass: false, reason: Reason.NOT_PUBLIC, detail: "video is not public" }) };
+    const s = item.snippet ?? {};
+    return { text: `YouTube video\nTitle: ${s.title ?? ""}\nChannel: ${s.channelTitle ?? ""}\nDescription:\n${String(s.description ?? "").slice(0, 3500)}` };
+  }
+  const watch = `https://www.youtube.com/watch?v=${enc(videoId)}`;
+  const res = sr.sendRequest({ url: `https://www.youtube.com/oembed?url=${enc(watch)}&format=json`, method: "GET" }).result();
+  if (res.statusCode === 404 || res.statusCode === 400) return { verdict: verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "video not found" }) };
+  if (res.statusCode !== 200) return { verdict: verdictOf({ pass: false, reason: Reason.NOT_PUBLIC, detail: `video not public (oEmbed ${res.statusCode})`, retry: transient(res.statusCode) }) };
+  const o = json(res.body);
+  return { text: `YouTube video\nTitle: ${o.title ?? ""}\nChannel: ${o.author_name ?? ""}\n(description not available without the YouTube API key)` };
+};
+
 const checkWithAI = (
   sr: HTTPSendRequester,
   ev: string,
@@ -178,8 +220,15 @@ const checkWithAI = (
     // what the judges read: the linked page's text (or the evidence string itself if it isn't a link)
     let content = ev;
     const url = toUrl(ev);
-    if (url) {
-      const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
+    if (url && isYoutube(url)) {
+      // YouTube: the judges read the video's title, channel and description (they can't watch the video itself)
+      const v = youtubeText(sr, youtubeId(url), keys.youtube);
+      if ("verdict" in v) return v.verdict;
+      content = v.text;
+    } else if (url) {
+      const page = fetchPage(sr, url);
+      if ("tooBig" in page) return tooBigVerdict();
+      const res = page;
       if (res.statusCode < 200 || res.statusCode >= 400) {
         return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}`, retry: transient(res.statusCode) });
       }
@@ -193,7 +242,7 @@ const checkWithAI = (
     const keyOf = { groq: keys.groq, gemini: keys.gemini, nvidia: keys.nvidia };
     votes = [];
     for (const judge of DEFAULT_JUDGES) {
-      const answer = parseJson<{ pass?: boolean }>(askJudge(sr, judge, keyOf[judge.provider], GUARDRAIL, user, 50));
+      const answer = parseJson<{ pass?: boolean }>(askJudge(sr, judge, keyOf[judge.provider], GUARDRAIL, user, 400)); // GPT-OSS reasons first: 50 tokens left it no room to answer
       if (answer && typeof answer.pass === "boolean") votes.push(answer.pass);
     }
   }
@@ -362,7 +411,8 @@ export const onClauseSubmitted = (runtime: Runtime<Config>, log: EVMLog): string
   };
   const needsAI = clause.checkType === CHECK_AI && !config.replay;
   const keys: Keys = {
-    youtube: clause.checkType <= CHECK_DESC_CONTAINS ? secret("YOUTUBE_API_KEY") : "",
+    // the AI check reads YouTube links through the API too (the watch page is far over CRE's 250 KB limit)
+    youtube: clause.checkType <= CHECK_DESC_CONTAINS || needsAI ? secret("YOUTUBE_API_KEY") : "",
     groq: needsAI ? secret("GROQ_API_KEY") : "",
     gemini: needsAI ? secret("GEMINI_API_KEY") : "",
     nvidia: needsAI ? secret("NVIDIA_API_KEY") : "",
