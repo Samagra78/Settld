@@ -15,6 +15,8 @@
 // The wallet in the attestation always comes from the signed-in session, never from the request,
 // so a proof can only ever be linked to the wallet that asked for it.
 
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { signRequest } from '@worldcoin/idkit-core/signing';
 import type { Express, NextFunction, Request, Response } from 'express';
 import {
@@ -40,8 +42,9 @@ export type WorldIdDeps = {
 const env = (k: string) => process.env[k]?.trim() ?? '';
 const ACTION = () => env('WLD_ACTION') || 'settld-member';
 const ENVIRONMENT = () => (env('WLD_ENVIRONMENT') || 'staging') as 'production' | 'staging';
-const VERIFY_BASE = () =>
-  ENVIRONMENT() === 'staging' ? 'https://staging-developer.worldcoin.org' : 'https://developer.world.org';
+// One host for both environments: apps created in the current Developer Portal verify here, staging included
+// (the old staging-developer.worldcoin.org host answers "app_not_migrated" for World ID 4.0 apps).
+const VERIFY_BASE = () => env('WLD_VERIFY_BASE') || 'https://developer.world.org';
 const REGISTRY = () => env('JUROR_REGISTRY_ADDRESS');
 
 const registryAbi = parseAbi([
@@ -56,6 +59,14 @@ const pendingNonces = new Map<string, { wallet: string; expiresAt: number }>();
 
 export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
   const configured = () => !!(env('WLD_APP_ID') && env('WLD_RP_ID') && env('WLD_RP_SIGNING_KEY') && env('ATTESTER_PRIVATE_KEY'));
+
+  // Developer test page for the full IDKit flow (not served in production)
+  if (process.env.NODE_ENV !== 'production') {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    app.get('/worldid-test', (_req, res) => res.sendFile(path.join(here, '..', 'public', 'worldid-test.html')));
+    app.get('/worldid-test/idkit.js', (_req, res) =>
+      res.type('application/javascript').sendFile(path.join(here, '..', 'node_modules', '@worldcoin', 'idkit-core', 'dist', 'idkit.global.js')));
+  }
 
   // 1. public settings for IDKit
   app.get('/api/worldid/config', (_req, res) => {
@@ -105,14 +116,27 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
 
     let verification: any;
     try {
-      const r = await fetch(`${VERIFY_BASE()}/api/v4/verify/${encodeURIComponent(env('WLD_RP_ID'))}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...result, environment: ENVIRONMENT() }),
-      });
-      verification = await r.json().catch(() => ({}));
-      if (!r.ok || verification?.success !== true) {
-        return res.status(400).json({ message: 'World ID could not verify this proof.', code: verification?.code, detail: verification?.detail });
+      const bases = [VERIFY_BASE()];
+      let lastError: any = null;
+      for (const base of bases) {
+        const r = await fetch(`${base}/api/v4/verify/${encodeURIComponent(env('WLD_RP_ID'))}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...result, environment: ENVIRONMENT() }),
+        });
+        verification = await r.json().catch(() => ({}));
+        if (r.ok && verification?.success === true) {
+          lastError = null;
+          break;
+        }
+        lastError = { host: base, status: r.status, code: verification?.code, detail: verification?.detail ?? verification };
+        console.warn('[worldid] verify rejected:', JSON.stringify(lastError).slice(0, 500));
+      }
+      if (lastError) {
+        return res.status(400).json({
+          message: `World ID could not verify this proof (${lastError.code ?? lastError.status}: ${typeof lastError.detail === 'string' ? lastError.detail : 'see server log'}).`,
+          ...lastError,
+        });
       }
     } catch {
       return res.status(502).json({ message: 'Could not reach World ID to verify the proof.' });

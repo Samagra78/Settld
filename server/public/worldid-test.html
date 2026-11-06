@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>World ID Test</title>
+  <style>
+    :root { color-scheme: dark; --bg: #111214; --card: #1b1d21; --text: #e9e9ea; --muted: #9a9ca3; --ok: #3ecf8e; --bad: #ff6b6b; --accent: #5b8cff; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 680px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    p.muted { color: var(--muted); margin: 0 0 20px; }
+    .card { background: var(--card); border-radius: 12px; padding: 16px; margin: 12px 0; }
+    button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-size: 15px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    code, pre { font: 13px/1.4 ui-monospace, monospace; word-break: break-all; white-space: pre-wrap; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    a { color: var(--accent); }
+    ol { padding-left: 20px; }
+    .connect-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+    .connect-actions { flex: 1 1 220px; }
+    .qr { background: #fff; padding: 12px; border-radius: 10px; width: 200px; height: 200px; }
+    .qr img, .qr canvas { width: 200px !important; height: 200px !important; }
+    a.btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; border-radius: 8px; padding: 10px 16px; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+<main>
+  <h1>World ID Test</h1>
+  <p class="muted">Developer page for Settld: proves the IDKit 4 → server verify → attestation flow before the real UI is wired.</p>
+
+  <div class="card" id="who">Checking sign-in…</div>
+
+  <div class="card">
+    <button id="go" disabled>Verify with World ID</button>
+    <div id="connect" style="display:none; margin-top:12px">
+      <div class="connect-row">
+        <div>
+          <p style="margin:0 0 8px"><strong>Scan with World App</strong> (or the simulator's scan button)</p>
+          <div id="qr" class="qr"></div>
+        </div>
+        <div class="connect-actions">
+          <p style="margin:0 0 8px"><strong>On a phone?</strong></p>
+          <a id="open" class="btn" href="#" target="_blank" rel="noopener">Open in World App</a>
+          <p style="margin:16px 0 8px"><strong>Testing on a laptop?</strong> Paste the link into the
+            <a href="https://simulator.worldcoin.org" target="_blank" rel="noopener">World ID Simulator</a>.</p>
+          <button id="copy" type="button">Copy link</button>
+        </div>
+      </div>
+      <pre id="uri" style="margin-top:12px"></pre>
+      <p class="muted" id="poll">Waiting for World App…</p>
+    </div>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+</main>
+
+<script src="/worldid-test/idkit.js"></script>
+<script>
+  const log = (m, cls) => {
+    const el = document.getElementById("log");
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = m;
+    el.appendChild(line);
+  };
+  const api = async (path, body) => {
+    const r = await fetch("/api" + path, body === undefined ? {} : {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || j.error || ("HTTP " + r.status));
+    return j;
+  };
+
+  (async () => {
+    const who = document.getElementById("who");
+    try {
+      const me = await api("/me");
+      who.innerHTML = 'Signed in as <code></code>';
+      who.querySelector("code").textContent = me.address;
+      const cfg = await api("/worldid/config");
+      if (!cfg.enabled) { log("World ID is not configured on the server.", "bad"); return; }
+      log(`app ${cfg.appId} · action ${cfg.action} · ${cfg.environment}`);
+      document.getElementById("go").disabled = false;
+      document.getElementById("go").onclick = () => verify(cfg);
+    } catch {
+      who.innerHTML = 'Not signed in. Sign in on <a href="http://localhost:5173">the Settld site</a> first, then reload this page.';
+    }
+  })();
+
+  async function verify(cfg) {
+    const go = document.getElementById("go");
+    go.disabled = true;
+    try {
+      // 1. our server signs the request (IDKit 4 needs an RP context); signal = my wallet
+      const ctx = await api("/worldid/rp-context", {});
+      log("✓ RP context signed by the server");
+
+      // 2. IDKit builds the request → a link for World App / the simulator
+      const request = await IDKit.request({
+        app_id: cfg.appId,
+        action: ctx.action,
+        rp_context: ctx.rp_context,
+        // the simulator (and older World App versions) still send World ID 3.0 proofs; accept both
+        allow_legacy_proofs: true,
+        environment: ctx.environment,
+      }).preset(IDKit.proofOfHuman({ signal: ctx.signal }));
+
+      document.getElementById("connect").style.display = "block";
+      const uriEl = document.getElementById("uri");
+      uriEl.textContent = request.connectorURI;
+      document.getElementById("open").href = request.connectorURI;
+      const qr = document.getElementById("qr");
+      qr.innerHTML = "";
+      if (window.QRCode) new QRCode(qr, { text: request.connectorURI, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+      else qr.textContent = "QR library didn't load — use the link.";
+      const copyBtn = document.getElementById("copy");
+      copyBtn.textContent = "Copy link";
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(request.connectorURI);
+          copyBtn.textContent = "Copied ✓";
+        } catch {
+          // fallback: select the text so Ctrl+C works
+          const range = document.createRange();
+          range.selectNodeContents(uriEl);
+          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          copyBtn.textContent = "Selected: press Ctrl+C";
+        }
+      };
+      log("✓ Request created. Paste the link into the simulator.");
+
+      // 3. wait for the proof, showing every status change
+      const poll = document.getElementById("poll");
+      const labels = {
+        waiting_for_connection: "Waiting for the simulator to open the link…",
+        awaiting_confirmation: "Simulator connected. Approve it there…",
+        confirmed: "Proof received.",
+        failed: "Failed.",
+      };
+      let last = "", result = null;
+      const until = Date.now() + 300000;
+      while (Date.now() < until) {
+        const s = await request.pollOnce();
+        if (s.type !== last) { last = s.type; poll.textContent = labels[s.type] || s.type; log("… status: " + s.type + (s.error ? " (" + s.error + ")" : "")); }
+        if (s.type === "confirmed") { result = s.result; break; }
+        if (s.type === "failed") throw new Error("World ID: " + (s.error || "failed"));
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (!result) throw new Error("Timed out waiting for the simulator.");
+      log("✓ Proof received from World ID (protocol " + (result.protocol_version || "?") + ")");
+
+      // 4. server checks it with World and signs the attestation (nullifier, wallet)
+      const att = await api("/worldid/verify", result);
+      log("✓ Verified by World. Attestation signed:", "ok");
+      log("  nullifier: " + att.nullifier);
+      log("  wallet:    " + att.wallet);
+      log("  attester:  " + att.attester);
+      log("Next step (after JurorRegistry is deployed): POST /api/jury/register with { nullifier, signature }.");
+    } catch (e) {
+      log("✗ " + e.message, "bad");
+    } finally {
+      go.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>
