@@ -109,10 +109,34 @@ ABI-encoded, in this exact order:
 - Solidity decoding: `abi.decode(report, (uint8, uint256, uint8, uint8, bytes32, uint64, uint64))`
 - Expected bytes for each kind live in `shared/fixtures/reports.json` (P1 generates them in S1). **All three test against these.**
 
-## World ID
-- Action: `settld-member` (one action for every role)
-- Signal: the user's wallet address
-- Attestation signed by the backend: `keccak256(abi.encodePacked(nullifier, wallet))`, as an EIP-191 signed message from `ATTESTER` (the address is stored in `JurorRegistry`)
+## World ID (IDKit 4.x)
+- Action: `settld-member` (one action for every role). Environment: `staging` (World ID Simulator) for the demo.
+- IDKit 4 needs a backend-signed **RP context** per request (`POST /api/worldid/rp-context`). Signal = the signed-in wallet.
+- Proof checked by the backend with World's v4 verify API (World ID's on-chain verifier is on Arc **mainnet** only, not testnet).
+- Attestation signed by the backend: EIP-191 `personal_sign` over `keccak256(abi.encodePacked(uint256 nullifier, address wallet))`,
+  from `ATTESTER` (address stored immutably in `JurorRegistry`). The wallet always comes from the server session.
+
+## JurorRegistry (contracts/src/JurorRegistry.sol)
+Constructor `JurorRegistry(address attester, address clauseEscrow)`. Never moves money.
+```
+registerPerson(uint256 nullifier, bytes signature)   // links msg.sender ↔ nullifier; one nullifier = one wallet, forever
+vote(uint256 dealId, uint8 clauseId, bool payCreator) // registered, not brand/creator (by wallet OR World ID), clause status must be Disputed (4)
+decision(uint256 dealId, uint8 clauseId) view returns (bool decided, bool payCreator, uint8 votesPay, uint8 votesRefund)
+nullifierOf(address) / walletOf(uint256) / isRegistered(address) / hasVoted(bytes32 caseKey, uint256 nullifier)
+JURY_SIZE = 3, MAJORITY = 2   // first side to 2 votes wins
+events: PersonRegistered(nullifier, wallet), Voted(dealId, clauseId, juror, payCreator), Decided(dealId, clauseId, payCreator, votesPay, votesRefund)
+```
+
+### What ClauseEscrow needs for disputes (Samagra — next redeploy)
+```
+dispute(uint256 dealId, uint8 clauseId)        // brand only; clause Verified AND inside RELEASE_WINDOW → status Disputed (4); emits ClauseDisputed
+resolveDispute(uint256 dealId, uint8 clauseId) // anyone; reads jury.decision(); requires decided;
+                                               //   payCreator → Released (pay creator, same dependency rule as release())
+                                               //   else       → Refunded (refund brand; cascade still applies to dependents)
+setJury(address)                               // one-time, or pass the JurorRegistry address in the constructor
+```
+Rules: only the disputed clause is frozen; Disputed clauses can't be released/refunded any other way; a Disputed clause
+counts as non-final for the cascade rule (checker models Disputed → Released | Refunded).
 
 ## Backend API (server, port 3000; the client proxies `/api`)
 | Route | Body | Returns | Step |
@@ -121,7 +145,12 @@ ABI-encoded, in this exact order:
 | `GET /api/deals/:specHash` | — | `{ text, clauses }` | S4 |
 | `POST /api/report/encode` | `{ kind, dealId, clauseId, value, data }` | `{ hex }` | S5 |
 | `POST /api/certify` | `{ dealId }` | `{ ok, reason? }` | S8 |
-| `POST /api/worldid` | IDKit proof + `wallet` | `{ nullifier, signature }` | S10 |
+| `GET /api/worldid/config` | — | `{ enabled, appId, action, environment, registry }` | V1c |
+| `POST /api/worldid/rp-context` | — (signed in) | `{ rp_context, signal, action, environment }` | V1c |
+| `POST /api/worldid/verify` | IDKit result (as-is) | `{ nullifier, signature, attester, wallet }` | V1c |
+| `POST /api/jury/register` | `{ nullifier, signature }` | Circle `{ challengeId }` | V1c |
+| `POST /api/jury/vote` | `{ dealId, clauseId, payCreator }` | Circle `{ challengeId }` | V1c |
+| `GET /api/jury/:dealId/:clauseId` | — | `{ decided, payCreator, votesPay, votesRefund, registered }` | V1c |
 
 ## Hand-offs
 - P2 → after each deploy: addresses in this file + ABI JSON in `shared/abi/`
