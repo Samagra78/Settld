@@ -33,7 +33,7 @@ import { registerWorldIdRoutes } from './worldid.js';
 import { registerCourtRoutes } from './court.js';
 import { registerAutomation } from './automation.js';
 import { registerArbitrationRoutes } from './arbitration.js';
-import { recordEvent } from './db.js';
+import { getState, initStore, recordEvent, setState } from './store.js';
 import { registerMonitor } from './monitor.js';
 import { registerExtractRoutes } from './extract.js';
 
@@ -652,6 +652,10 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 const shared = addresses as unknown as {
   usdc: string; aiCourt?: { address?: string }; jurorRegistry?: { address?: string }; clauseEscrow?: { deployBlock?: number };
 };
+// database first (MongoDB when MONGODB_URI is set, otherwise SQLite), then everything that uses it
+await initStore();
+const savedAutomation = (await getState('automation')) ?? undefined;
+
 const arbitration = registerArbitrationRoutes(app, {
   requireWallet, sessionOf, contractCall, reply,
   arc: arc as unknown as PublicClient,
@@ -670,6 +674,8 @@ registerAutomation(app, {
   escrowOverride: process.env.ESCROW_ADDRESS?.trim(),
   creProject,
   onEvent: recordEvent,
+  initialState: savedAutomation,
+  persist: (state) => setState('automation', state),
   archiveFromBlock: shared.clauseEscrow?.deployBlock ? BigInt(shared.clauseEscrow.deployBlock) : undefined,
 });
 registerExtractRoutes(app, requireWallet);

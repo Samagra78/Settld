@@ -79,10 +79,13 @@ const Reason = {
   LINK_DOWN: 6, NOT_MERGED: 7, AI_REJECTED: 8, NO_AI: 9,
 } as const;
 
-type Verdict = { pass: boolean; reason: number; detail: string };
+type Verdict = { pass: boolean; reason: number; detail: string; retry?: boolean };
+// Temporary failures (rate limits, server errors, too few AI answers) must NOT become a verdict:
+// the workflow stops without a report and the watcher retries later.
+const transient = (status: number) => status === 403 || status === 429 || status >= 500;
 
 // ---------- any-link checks (runs on every node; nodes must return identical verdicts) ----------
-type Keys = { youtube: string; groq: string; gemini: string; nvidia: string };
+type Keys = { youtube: string; groq: string; gemini: string; nvidia: string; github: string };
 
 const verdictOf = (v: Verdict) => JSON.stringify(v);
 
@@ -102,7 +105,7 @@ const checkEvidence = (
     return checkVideo(sr, youtubeId(ev), checkType, param, deadline, keys.youtube);
   }
   if (checkType === CHECK_URL_LIVE || checkType === CHECK_URL_CONTAINS) return checkUrl(sr, ev, checkType, param);
-  if (checkType === CHECK_GITHUB_MERGED) return checkGithub(sr, ev, param);
+  if (checkType === CHECK_GITHUB_MERGED) return checkGithub(sr, ev, param, keys.github);
   if (checkType === CHECK_AI) return checkWithAI(sr, ev, param, keys, replay, replayVerdicts);
   return verdictOf({ pass: false, reason: Reason.UNSUPPORTED, detail: `check type ${checkType} not supported by WF1` });
 };
@@ -125,7 +128,7 @@ const checkUrl = (sr: HTTPSendRequester, ev: string, checkType: number, param: s
   if (!url) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "evidence is not a link" });
   const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
   if (res.statusCode < 200 || res.statusCode >= 400) {
-    return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}` });
+    return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}`, retry: transient(res.statusCode) });
   }
   if (checkType === CHECK_URL_LIVE) return verdictOf({ pass: true, reason: Reason.OK, detail: "link is live" });
   const text = stripHtml(decodeText(res.body), 200_000).toLowerCase();
@@ -138,7 +141,7 @@ const checkUrl = (sr: HTTPSendRequester, ev: string, checkType: number, param: s
 };
 
 /** GITHUB_MERGED: evidence = PR URL; optional param = "owner/repo" the PR must target. */
-const checkGithub = (sr: HTTPSendRequester, ev: string, param: string): string => {
+const checkGithub = (sr: HTTPSendRequester, ev: string, param: string, token: string): string => {
   const m = ev.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i);
   if (!m) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "not a GitHub pull request link" });
   const [, owner, repo, num] = m;
@@ -148,9 +151,9 @@ const checkGithub = (sr: HTTPSendRequester, ev: string, param: string): string =
   const res = sr.sendRequest({
     url: `https://api.github.com/repos/${owner}/${repo}/pulls/${num}`,
     method: "GET",
-    headers: { "User-Agent": "Settld-CRE/1.0", Accept: "application/vnd.github+json" },
+    headers: { "User-Agent": "Settld-CRE/1.0", Accept: "application/vnd.github+json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   }).result();
-  if (res.statusCode !== 200) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: `GitHub ${res.statusCode}` });
+  if (res.statusCode !== 200) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: `GitHub ${res.statusCode}`, retry: transient(res.statusCode) });
   const pr = JSON.parse(decodeText(res.body));
   return verdictOf(
     pr.merged === true
@@ -178,7 +181,7 @@ const checkWithAI = (
     if (url) {
       const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
       if (res.statusCode < 200 || res.statusCode >= 400) {
-        return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}` });
+        return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}`, retry: transient(res.statusCode) });
       }
       content = stripHtml(decodeText(res.body), 4000);
     }
@@ -194,7 +197,7 @@ const checkWithAI = (
       if (answer && typeof answer.pass === "boolean") votes.push(answer.pass);
     }
   }
-  if (votes.length < 2) return verdictOf({ pass: false, reason: Reason.NO_AI, detail: "fewer than 2 AI judges answered" });
+  if (votes.length < 2) return verdictOf({ pass: false, reason: Reason.NO_AI, detail: "fewer than 2 AI judges answered", retry: true });
   const yes = votes.filter(Boolean).length;
   const pass = yes * 2 > votes.length;
   return verdictOf({
@@ -319,6 +322,7 @@ export const onClauseSubmitted = (runtime: Runtime<Config>, log: EVMLog): string
     groq: needsAI ? secret("GROQ_API_KEY") : "",
     gemini: needsAI ? secret("GEMINI_API_KEY") : "",
     nvidia: needsAI ? secret("NVIDIA_API_KEY") : "",
+    github: clause.checkType === CHECK_GITHUB_MERGED ? secret("GITHUB_TOKEN") : "",
   };
   const http = new HTTPClient();
   const verdictJson = http
@@ -327,6 +331,7 @@ export const onClauseSubmitted = (runtime: Runtime<Config>, log: EVMLog): string
     )
     .result();
   const verdict = JSON.parse(verdictJson) as Verdict;
+  if (verdict.retry) throw new Error(`Temporary problem, no verdict sent (will retry): ${verdict.detail}`);
   runtime.log(`WF1: verdict ${verdict.pass ? "PASS" : "FAIL"} — ${verdict.detail}`);
 
   // 4. report to ClauseEscrow

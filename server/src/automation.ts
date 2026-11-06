@@ -40,7 +40,10 @@ export type AutomationDeps = {
   escrowOverride?: string;
   creProject: string;
   /** Called once for every archived contract event (the database indexer). */
-  onEvent?: (e: { name: string; contract: string; args: Record<string, unknown>; txHash: string; logIndex: number; block: bigint }) => void;
+  onEvent?: (e: { name: string; contract: string; args: Record<string, unknown>; txHash: string; logIndex: number; block: bigint }) => void | Promise<void>;
+  /** Saved automation state from the database (loaded before start), and how to save it. */
+  initialState?: unknown;
+  persist?: (state: unknown) => Promise<void>;
   /** Block to backfill the archive from on first start (e.g. the escrow's deploy block). */
   archiveFromBlock?: bigint;
 };
@@ -130,15 +133,22 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
       return { lastBlock: '', cases: [], panels: [], settledDeals: [], seen: [] };
     }
   };
-  const state = load();
+  // state lives in the database when one is given (hosting wipes local files); the old file is the fallback
+  const state: State = (d.initialState as State | null | undefined) ?? load();
   // Jobs survive a restart: the one that was running and any still queued are resumed
   if (state.jobs?.length) {
     queue.push(...state.jobs);
     console.log(`[automation] resuming ${state.jobs.length} saved workflow job(s): ${state.jobs.map((j) => j.label).join(', ')}`);
   }
+  let saving: Promise<unknown> = Promise.resolve();
   const save = () => {
     state.seen = state.seen.slice(-500);
     state.jobs = [...(running ? [running] : []), ...queue];
+    if (d.persist) {
+      const snapshot = JSON.parse(JSON.stringify(state)) as State;
+      saving = saving.then(() => d.persist!(snapshot)).catch((e) => console.error('[automation] save:', (e as Error).message));
+      return;
+    }
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
   };
@@ -186,9 +196,9 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     return logs.filter((l) => parts.some((p) =>
       p.address!.toLowerCase() === l.address.toLowerCase() && p.events.some((e) => e.name === l.eventName)));
   };
-  const archive = (l: Log) => {
+  const archive = async (l: Log) => {
     try {
-      d.onEvent?.({ name: l.eventName, contract: l.address, args: l.args, txHash: l.transactionHash, logIndex: l.logIndex, block: l.blockNumber });
+      await d.onEvent?.({ name: l.eventName, contract: l.address, args: l.args, txHash: l.transactionHash, logIndex: l.logIndex, block: l.blockNumber });
     } catch (e) {
       console.error('[automation] archive:', (e as Error).message);
     }
@@ -200,7 +210,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     let from = d.archiveFromBlock;
     while (from <= until) {
       const to = until - from > 1999n ? from + 1999n : until;
-      for (const l of await fetchArchive(from, to)) archive(l);
+      for (const l of await fetchArchive(from, to)) await archive(l);
       from = to + 1n;
     }
     state.archivedTo = until.toString();
@@ -228,7 +238,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
       // ONE log query per tick for every contract and event (Arc's public RPC rate-limits bursts)
       const active = sources.filter((s) => s.address);
       const all = await fetchArchive(from, to);
-      for (const l of all) archive(l);
+      for (const l of all) await archive(l);
       for (const s of active) {
         const logs = all.filter((l) => l.eventName === s.event.name && l.address.toLowerCase() === s.address!.toLowerCase());
         for (const l of logs) {

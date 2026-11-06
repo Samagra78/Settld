@@ -3,12 +3,11 @@
 // work → dispute → AI court → parties' chance to question → human arbitrators → payout), plus the raw
 // watcher/keeper activity and contract events. Not served in production.
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Express } from 'express';
 import { formatUnits } from 'viem';
-import { addStory, db, stats } from './db.js';
+import * as store from './store.js';
 import { extractClauses } from './extract.js';
 
 type Step = { at: string; icon: string; title: string; detail: string; tx?: string; phase: string };
@@ -16,30 +15,31 @@ type Step = { at: string; icon: string; title: string; detail: string; tx?: stri
 const usdc = (v: unknown) => `${formatUnits(BigInt(String(v ?? 0)), 6)} USDC`;
 const pct = (b: unknown) => (Number(b) === 255 ? 'no decision' : `${b}%`);
 
-function transcriptRound(caseId: number, round: number) {
-  const f = path.resolve(process.cwd(), 'data', 'court', `${caseId}.json`);
-  if (!fs.existsSync(f)) return null;
-  const t = JSON.parse(fs.readFileSync(f, 'utf8'));
+async function transcriptRound(caseId: number, round: number) {
+  const raw = await store.getTranscript(String(caseId));
+  if (!raw) return null;
+  const t = JSON.parse(raw);
   const r = t.rounds?.find((x: { round: number }) => x.round === round);
   return r ? { judges: t.judges as string[], round: r } : null;
 }
 
 /** Everything that happened to one deal, as plain-English steps in order. */
-function storyOf(dealId: number): Step[] {
-  const deal = db.prepare('SELECT * FROM deals WHERE deal_id = ?').get(dealId) as Record<string, any> | undefined;
+async function storyOf(dealId: number): Promise<Step[]> {
+  const deal = await store.getDeal(dealId);
   const who = (addr: unknown) => {
     const a = String(addr ?? '').toLowerCase();
     return a && a === deal?.client ? 'The client' : a && a === deal?.freelancer ? 'The freelancer' : 'Someone';
   };
-  const caseIds = (db.prepare('SELECT case_id FROM cases WHERE deal_id = ?').all(dealId) as { case_id: number }[]).map((c) => c.case_id);
-  const events = (db.prepare('SELECT * FROM events ORDER BY block, log_index').all() as Record<string, any>[])
+  const caseIds = await store.caseIdsOfDeal(dealId);
+  const allEvents = await store.listEvents();
+  const events = allEvents
     .map((e): Record<string, any> => ({ ...e, args: JSON.parse(e.args_json) }))
     .filter((e) => Number(e.args.dealId) === dealId || (e.args.caseId !== undefined && caseIds.includes(Number(e.args.caseId))));
   const panelTx = new Set(events.filter((e) => e.name === 'PanelClosed').map((e) => e.tx_hash));
-  const strikes = (db.prepare('SELECT * FROM events WHERE name = ? ORDER BY block').all('Struck') as Record<string, any>[])
+  const strikes = allEvents.filter((e) => e.name === 'Struck')
     .filter((e) => panelTx.has(e.tx_hash)).map((e): Record<string, any> => ({ ...e, args: JSON.parse(e.args_json) }));
 
-  const steps: Step[] = (db.prepare('SELECT * FROM story WHERE deal_id = ? ORDER BY id').all(dealId) as Record<string, any>[])
+  const steps: Step[] = (await store.storyOf(dealId))
     .map((s) => ({ at: s.at, icon: s.icon, title: s.title, detail: s.detail, phase: 'Agreeing the contract' }));
 
   const first = (e: Record<string, any>) => (e.name === 'ClauseDisputed' || e.name === 'Appealed' ? 0 : 1); // the person's action before what it triggers
@@ -58,7 +58,7 @@ function storyOf(dealId: number): Step[] {
       case 'ClauseDisputed': push('Questioning the result', '✋', `${who(a.disputer)} questioned the result`, `"${a.reason}" — the money for this clause is frozen and the case goes to the AI court.`); break;
       case 'CaseOpened': push('AI court', '⚖️', `The AI court opened (case #${a.caseId})`, '3 AI judges from 3 different companies — OpenAI (gpt-oss), Google (Gemini) and NVIDIA (Nemotron). First they judge alone, then they debate. 200 words each, 3 minutes (5 at most).'); break;
       case 'RoundCompleted': {
-        const r = transcriptRound(Number(a.caseId), Number(a.round));
+        const r = await transcriptRound(Number(a.caseId), Number(a.round));
         const said = r ? r.round.judges.map((j: any, i: number) =>
           `${r.judges[i]} → ${j.band}%${j.isFinal ? ' (final)' : ''}${j.statement ? `: "${j.statement}"` : ''}`).join('\n') : '';
         push('AI court', '🗣️', Number(a.round) === 0 ? 'Round 0 — each judge decided alone, without seeing the others' : `Round ${a.round} — the judges answered each other`, said);
@@ -86,20 +86,20 @@ export function registerMonitor(app: Express, contracts: Record<string, string |
   if (process.env.NODE_ENV === 'production') return;
   const here = path.dirname(fileURLToPath(import.meta.url));
   app.get('/monitor', (_req, res) => res.sendFile(path.join(here, '..', 'public', 'monitor.html')));
-  app.get('/api/monitor', (_req, res) => {
+  app.get('/api/monitor', async (_req, res) => {
     res.set('Cache-Control', 'no-store').json({
-      contracts, explorer,
-      stats: stats(),
-      deals: db.prepare('SELECT * FROM deals ORDER BY deal_id DESC LIMIT 20').all(),
-      cases: db.prepare('SELECT * FROM cases ORDER BY case_id DESC LIMIT 20').all(),
-      votes: db.prepare('SELECT * FROM panel_votes ORDER BY case_id DESC LIMIT 30').all(),
-      events: db.prepare('SELECT tx_hash, log_index, block, contract, name, args_json, seen_at FROM events ORDER BY block DESC, log_index DESC LIMIT 60').all(),
+      contracts, explorer, database: store.backend(),
+      stats: await store.stats(),
+      deals: await store.listDeals(20),
+      cases: await store.listCases(20),
+      votes: await store.listVotes(30),
+      events: await store.listEvents(60),
     });
   });
-  app.get('/api/monitor/story/:dealId', (req, res) => {
+  app.get('/api/monitor/story/:dealId', async (req, res) => {
     const dealId = Number(req.params.dealId);
     if (!Number.isInteger(dealId) || dealId < 1) return res.status(400).json({ message: 'Invalid deal.' });
-    res.set('Cache-Control', 'no-store').json({ dealId, explorer, steps: storyOf(dealId) });
+    res.set('Cache-Control', 'no-store').json({ dealId, explorer, steps: await storyOf(dealId) });
   });
 
   // Dev-only helpers used by scripts/e2e-dispute.ts to record the off-chain start of the story
@@ -110,10 +110,10 @@ export function registerMonitor(app: Express, contracts: Record<string, string |
     if (!r) return res.status(502).json({ message: 'The AI models did not answer.' });
     res.json(r);
   });
-  app.post('/api/monitor/story', (req, res) => {
+  app.post('/api/monitor/story', async (req, res) => {
     const { dealId, icon, title, detail } = req.body ?? {};
     if (!Number.isInteger(Number(dealId)) || typeof title !== 'string') return res.status(400).json({ message: 'dealId + title' });
-    addStory(Number(dealId), String(icon ?? '•'), title.slice(0, 200), String(detail ?? '').slice(0, 4000));
+    await store.addStory(Number(dealId), String(icon ?? '•'), title.slice(0, 200), String(detail ?? '').slice(0, 4000));
     res.json({ ok: true });
   });
 }
