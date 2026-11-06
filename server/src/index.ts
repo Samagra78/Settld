@@ -28,6 +28,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import addresses from '../../shared/addresses.json' with { type: 'json' };
 import clauseEscrowAbi from '../../shared/abi/ClauseEscrow.json' with { type: 'json' };
 import certifyConfig from '../../cre/wf0-certify/config.staging.json' with { type: 'json' };
+import type { PublicClient } from 'viem';
+import { registerWorldIdRoutes } from './worldid.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -622,10 +624,14 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
   }
 });
 
-// Routes added step by step (see docs/INTERFACES.md):
-//   S4  POST /api/deals, GET /api/deals/:specHash
-//   S5  POST /api/report/encode
-//   S10 POST /api/worldid
+// World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
+registerWorldIdRoutes(app, {
+  requireWallet,
+  sessionOf,
+  contractCall,
+  reply,
+  arc: arc as unknown as PublicClient,
+});
 
 app.listen(PORT, () => {
   console.log(`Settld server running on http://localhost:${PORT}`);
