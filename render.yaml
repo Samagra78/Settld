@@ -1,0 +1,25 @@
+# Render Blueprint: the Settld website (static site). The API stays on Railway.
+# /api/* is proxied to Railway, so the login cookie is first-party on this site (Safari blocks third-party cookies).
+services:
+  - type: web
+    runtime: static
+    name: settld
+    branch: frontend-deploy
+    # the client imports ../shared (checker, spec), so build from the repo root
+    buildCommand: cd client && npm ci && npm run build
+    staticPublishPath: client/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # public Circle app id (it ships in the site's JavaScript anyway); not a secret
+      - key: VITE_CIRCLE_APP_ID
+        value: bea33821-add4-5661-bbb7-59fa472dc087
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://settld-backend-production.up.railway.app/api/*
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
