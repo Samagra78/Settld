@@ -1,0 +1,29 @@
+{
+  "description": "Fixture deal used by contract tests, the CRE checker and the client. Amounts are USDC units (6 decimals).",
+  "brand": "0x0000000000000000000000000000000000000B0B",
+  "creator": "0x0000000000000000000000000000000000000C0C",
+  "token": "0x3600000000000000000000000000000000000000",
+  "total": "100000000",
+  "clauses": [
+    {
+      "kind": 0,
+      "checkType": 0,
+      "param": "",
+      "deadline": 1794000000,
+      "amount": "60000000",
+      "dependsOn": 255,
+      "onFail": 0,
+      "vestDays": 0
+    },
+    {
+      "kind": 0,
+      "checkType": 1,
+      "param": "#TravelCoPartner",
+      "deadline": 1794000000,
+      "amount": "40000000",
+      "dependsOn": 0,
+      "onFail": 0,
+      "vestDays": 0
+    }
+  ]
+}

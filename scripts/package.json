@@ -1,0 +1,11 @@
+{
+  "name": "settld-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "bun run smoke.ts"
+  },
+  "dependencies": {
+    "viem": "^2.57.16"
+  }
+}

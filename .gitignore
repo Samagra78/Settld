@@ -1,0 +1,32 @@
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+*.key
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+coverage/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# CRE
+cre/**/.cre/cache/
+cre/**/node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
+contracts/artifacts/
+contracts/typechain-types/
+contracts/dist/
