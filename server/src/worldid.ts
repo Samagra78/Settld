@@ -7,15 +7,20 @@
 //   4. POST /api/worldid/verify      → forward the result to World's v4 verify API → if it succeeds,
 //                                     sign an attestation (nullifier, wallet) with ATTESTER_PRIVATE_KEY
 //   5. POST /api/jury/register       → Circle tx: JurorRegistry.registerPerson(nullifier, attestation)
-//   6. POST /api/jury/vote           → Circle tx: JurorRegistry.vote(dealId, clauseId, payCreator)
-//   7. GET  /api/jury/:dealId/:clauseId → current votes / decision
+//   6. POST /api/arbitrator/commit   → Circle tx: JurorRegistry.commitVote(caseId, hidden vote)   (appeal only)
+//   7. POST /api/arbitrator/reveal   → Circle tx: JurorRegistry.revealVote(caseId, band, salt)
+//   8. GET  /api/arbitrator/panel/:caseId → seats, deadlines, decision
+//   9. GET  /api/arbitrator/profile  → my record (cases, with majority, strikes, suspended)
 //
 // The wallet in the attestation always comes from the signed-in session, never from the request,
 // so a proof can only ever be linked to the wallet that asked for it.
 
 import { signRequest } from '@worldcoin/idkit-core/signing';
 import type { Express, NextFunction, Request, Response } from 'express';
-import { encodePacked, isAddress, keccak256, parseAbi, zeroAddress, type Address, type Hex, type PublicClient } from 'viem';
+import {
+  encodeAbiParameters, encodePacked, isAddress, keccak256, parseAbi, parseAbiParameters, zeroAddress,
+  type Address, type Hex, type PublicClient,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 type CircleResult = { status: number; ok: boolean; json: any };
@@ -41,7 +46,9 @@ const REGISTRY = () => env('JUROR_REGISTRY_ADDRESS');
 
 const registryAbi = parseAbi([
   'function nullifierOf(address) view returns (uint256)',
-  'function decision(uint256 dealId, uint8 clauseId) view returns (bool decided, bool payCreator, uint8 votesPay, uint8 votesRefund)',
+  'function profile(uint256 nullifier) view returns (uint32 cases, uint32 withMajority, uint8 strikes, bool suspended)',
+  'function decision(uint256 caseId) view returns (bool decided, uint8 band, address[] majority)',
+  'function getPanel(uint256 caseId) view returns (address client, address freelancer, uint64 commitDeadline, uint64 revealEnd, uint8 commits, uint8 reveals, bool opened, bool closed, uint8 band, address[3] seats)',
 ]);
 
 // nonce → wallet it was issued for (short-lived, in memory)
@@ -142,33 +149,80 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
     d.reply(res, await d.contractCall(userToken, walletId, REGISTRY(), 'registerPerson(uint256,bytes)', [String(nullifier), signature]));
   });
 
-  // 6. vote on a disputed clause
-  app.post('/api/jury/vote', d.requireWallet, async (req, res) => {
+  // 6. hidden vote, step 1: commit. The server derives the salt (so a restart can't lose it)
+  //    and remembers the band so the arbitrator only has to press "Reveal" later.
+  app.post('/api/arbitrator/commit', d.requireWallet, async (req, res) => {
     if (!registryReady(res)) return;
-    const { dealId, clauseId, payCreator } = req.body ?? {};
-    if (!/^\d+$/.test(String(dealId)) || !/^\d+$/.test(String(clauseId)) || Number(clauseId) > 255 || typeof payCreator !== 'boolean') {
-      return res.status(400).json({ message: 'Send dealId, clauseId and payCreator (true/false).' });
+    const { caseId, band } = req.body ?? {};
+    if (!/^\d+$/.test(String(caseId)) || !BANDS.includes(Number(band))) {
+      return res.status(400).json({ message: 'Send caseId and band (0, 50, 80 or 100).' });
     }
-    const { userToken, walletId } = d.sessionOf(res);
-    d.reply(res, await d.contractCall(userToken, walletId, REGISTRY(), 'vote(uint256,uint8,bool)', [String(dealId), String(clauseId), payCreator]));
+    const { userToken, walletId, address } = d.sessionOf(res);
+    const wallet = address.toLowerCase() as Address;
+    const salt = saltFor(String(caseId), wallet);
+    const commitment = keccak256(encodeAbiParameters(
+      parseAbiParameters('uint256, uint8, bytes32, address'), [BigInt(caseId), Number(band), salt, wallet]));
+    pendingBands.set(`${caseId}:${wallet}`, Number(band));
+    d.reply(res, await d.contractCall(userToken, walletId, REGISTRY(), 'commitVote(uint256,bytes32)', [String(caseId), commitment]));
   });
 
-  // 7. jury status for a clause (+ whether the signed-in wallet is a registered juror)
-  app.get('/api/jury/:dealId/:clauseId', d.requireWallet, async (req, res) => {
+  // 7. hidden vote, step 2: reveal (body may repeat the band if the server restarted since the commit)
+  app.post('/api/arbitrator/reveal', d.requireWallet, async (req, res) => {
     if (!registryReady(res)) return;
-    const dealId = String(req.params.dealId), clauseId = String(req.params.clauseId);
-    if (!/^\d+$/.test(dealId) || !/^\d+$/.test(clauseId) || Number(clauseId) > 255) return res.status(400).json({ message: 'Invalid deal or clause.' });
+    const { caseId } = req.body ?? {};
+    if (!/^\d+$/.test(String(caseId))) return res.status(400).json({ message: 'Send caseId.' });
+    const { userToken, walletId, address } = d.sessionOf(res);
+    const wallet = address.toLowerCase() as Address;
+    const band = pendingBands.get(`${caseId}:${wallet}`) ?? Number(req.body?.band);
+    if (!BANDS.includes(band)) return res.status(400).json({ message: 'No committed vote found. Send the band you committed.' });
+    d.reply(res, await d.contractCall(userToken, walletId, REGISTRY(), 'revealVote(uint256,uint8,bytes32)',
+      [String(caseId), String(band), saltFor(String(caseId), wallet)]));
+  });
+
+  // 8. panel status for a case
+  app.get('/api/arbitrator/panel/:caseId', d.requireWallet, async (req, res) => {
+    if (!registryReady(res)) return;
+    const caseId = String(req.params.caseId);
+    if (!/^\d+$/.test(caseId)) return res.status(400).json({ message: 'Invalid case.' });
     try {
       const address = REGISTRY() as Address;
-      const [decided, payCreator, votesPay, votesRefund] = await d.arc.readContract({
-        address, abi: registryAbi, functionName: 'decision', args: [BigInt(dealId), Number(clauseId)],
+      const [client, freelancer, commitDeadline, revealEnd, commits, reveals, opened, closed, band, seats] =
+        await d.arc.readContract({ address, abi: registryAbi, functionName: 'getPanel', args: [BigInt(caseId)] });
+      const [decided, , majority] = await d.arc.readContract({ address, abi: registryAbi, functionName: 'decision', args: [BigInt(caseId)] });
+      const me = d.sessionOf(res).address.toLowerCase();
+      res.json({
+        caseId, client, freelancer, opened, closed, decided,
+        commitDeadline: Number(commitDeadline), revealDeadline: Number(revealEnd),
+        commits, reveals, band: closed ? band : null, seats: seats.filter((s) => s !== zeroAddress),
+        majority, mySeat: seats.some((s) => s.toLowerCase() === me),
       });
-      const myNullifier = await d.arc.readContract({
+    } catch {
+      res.status(502).json({ message: 'Could not read the panel.' });
+    }
+  });
+
+  // 9. my arbitrator record (tied to my World ID, not my wallet)
+  app.get('/api/arbitrator/profile', d.requireWallet, async (_req, res) => {
+    if (!registryReady(res)) return;
+    try {
+      const address = REGISTRY() as Address;
+      const nullifier = await d.arc.readContract({
         address, abi: registryAbi, functionName: 'nullifierOf', args: [d.sessionOf(res).address as Address],
       });
-      res.json({ decided, payCreator, votesPay, votesRefund, registered: myNullifier !== 0n });
+      if (nullifier === 0n) return res.json({ registered: false, cases: 0, withMajority: 0, strikes: 0, suspended: false });
+      const [cases, withMajority, strikes, suspended] = await d.arc.readContract({
+        address, abi: registryAbi, functionName: 'profile', args: [nullifier],
+      });
+      res.json({ registered: true, cases, withMajority, strikes, suspended });
     } catch {
-      res.status(502).json({ message: 'Could not read the jury status.' });
+      res.status(502).json({ message: 'Could not read the arbitrator profile.' });
     }
   });
 }
+
+const BANDS = [0, 50, 80, 100];
+// caseId:wallet → committed band (memory only; the reveal route also accepts the band again)
+const pendingBands = new Map<string, number>();
+// deterministic per (case, wallet), secret to the server: nobody can recompute it to read a hidden vote
+const saltFor = (caseId: string, wallet: Address): Hex =>
+  keccak256(encodePacked(['string', 'uint256', 'address'], [env('JWT_SECRET') || env('ATTESTER_PRIVATE_KEY'), BigInt(caseId), wallet]));

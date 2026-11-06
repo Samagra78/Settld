@@ -204,6 +204,8 @@ closePanel(uint256 caseId)                                       // anyone (keep
 decision(uint256 caseId) view returns (bool decided, uint8 band, address[] majority)
 profile(uint256 nullifier) view returns (uint32 cases, uint32 withMajority, uint8 strikes, bool suspended)
 nullifierOf(address) / walletOf(uint256) / isRegistered(address)
+// extra read helpers (built): getPanel(caseId), revealDeadline(caseId), commitmentHash(caseId, band, salt, voter), seated(caseId, nullifier)
+// ABI: shared/abi/JurorRegistry.json. Old v1 vote()/MockEscrowView are gone.
 
 PANEL_SIZE 3 · COMMIT_SECS 120 (from openPanel) · REVEAL_SECS 60 (from 3rd commit or commit deadline) · MAX_STRIKES 2
 event PersonRegistered(uint256 indexed nullifier, address indexed wallet)
@@ -233,14 +235,13 @@ Rules:
 | `POST /api/worldid/rp-context` | — (signed in) | `{ rp_context, signal, action, environment }` | V1c |
 | `POST /api/worldid/verify` | IDKit result (as-is) | `{ nullifier, signature, attester, wallet }` | V1c |
 | `POST /api/jury/register` | `{ nullifier, signature }` | Circle `{ challengeId }` | V1c |
-| `POST /api/jury/vote` | `{ dealId, clauseId, payCreator }` | Circle `{ challengeId }` | V1c (replaced in V2 by commit/reveal below) |
-| `GET /api/jury/:dealId/:clauseId` | — | `{ decided, payCreator, votesPay, votesRefund, registered }` | V1c (replaced in V2) |
+| `GET /api/arbitrator/panel/:caseId` | — | `{ opened, closed, decided, commitDeadline, revealDeadline, commits, reveals, seats, band, majority, mySeat }` | V2 (built) |
 | `GET /api/court/:caseId` | — | `{ dealId, clauseId, reason, deadline, wordBudget, rounds: [{ round, judges: [{ band, wordsUsed, wantsExtend, isFinal, citedMask, text }] }], aiBand?, appealDeadline?, appealFee, final?, band? }` | V2 |
 | `POST /api/court/:caseId/appeal` | — | Circle `{ challengeId }` (approve + appeal) | V2 |
-| `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server keeps the salt for the reveal | V2 |
-| `POST /api/arbitrator/reveal` | `{ caseId }` | Circle `{ challengeId }` | V2 |
+| `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server derives the salt and remembers the band | V2 (built) |
+| `POST /api/arbitrator/reveal` | `{ caseId, band? }` | Circle `{ challengeId }` | V2 (built) |
 | `GET /api/arbitrator/cases` | — | open panels I can join | V2 |
-| `GET /api/arbitrator/profile` | — | `{ registered, cases, withMajority, strikes, suspended }` | V2 |
+| `GET /api/arbitrator/profile` | — | `{ registered, cases, withMajority, strikes, suspended }` | V2 (built) |
 
 ## Hand-offs
 - P2 → after each deploy: addresses in this file + ABI JSON in `shared/abi/`
