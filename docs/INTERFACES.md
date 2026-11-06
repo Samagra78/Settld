@@ -133,6 +133,17 @@ their band is final → `resolveDispute` pays band % to the freelancer and refun
 Studio's shared wallet can't transfer ownership). Attester = `0xDC930A8Fa2A3AE6820A30f2FF57863AaF772a861`.
 Wiring after deploy (owner, one-time): `escrow.setCourt(court)`, `court.setJury(registry)`, `registry.setCourt(court)`.
 
+**`shared/addresses.json` keys** (the watcher, keeper and `scripts/use-addresses.ts` read exactly these):
+`clauseEscrow.address`, `aiCourt.address`, `jurorRegistry.address`, each with the same extra fields as today's
+`clauseEscrow` (deployTx, builtIn, forwarder, owner). After a deploy: `bun run use-addresses` (from scripts/)
+copies them into the WF0/WF1/WF3 configs, then restart the server.
+
+**Automation (built, `server/src/automation.ts`):** with `AUTOMATION_ENABLED=true` the server watches Arc and runs
+WF0 on `DealAccepted`, WF1 on `ClauseSubmitted`, WF3 on `CaseOpened` / `RoundCompleted`. Every 30 s a keeper makes every
+permissionless move the contracts accept (each one dry-run first): release, refund (incl. cascade), expire,
+resolveDispute, resolveStuckDispute, closeCase, finalize, rescueFee, closePanel. Status for the UI:
+`GET /api/automation/status` → `{ enabled, contracts, running, queued, openCases, openPanels, recent: [{ at, kind, label, ok, detail }] }`.
+
 ## ClauseEscrow v2 (Samagra), changes only
 ```solidity
 constructor(address forwarder, address usdc, address owner)
