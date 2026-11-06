@@ -36,7 +36,7 @@ export type Judge = { name: string; provider: Provider; model: string };
 
 export const DEFAULT_JUDGES: Judge[] = [
   { name: "Llama (Groq)", provider: "groq", model: "llama-3.3-70b-versatile" },
-  { name: "Gemini", provider: "gemini", model: "gemini-2.5-flash" },
+  { name: "Gemini", provider: "gemini", model: "gemini-3.5-flash-lite" },
   { name: "Mistral (NVIDIA)", provider: "nvidia", model: "mistralai/mistral-small-24b-instruct" },
 ];
 
