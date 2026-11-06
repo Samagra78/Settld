@@ -1,4 +1,18 @@
 {
+  "chainId": 5042002,
+  "rpc": "https://rpc.testnet.arc.network",
+  "explorer": "https://explorer.testnet.arc.io",
+  "usdc": "0x3600000000000000000000000000000000000000",
   "ping": "0x14f6965f09f80ec65b190d4e377aadd8708469df",
-  "escrow": "0x500dbfb5073d696a9a9c3d7f8c251c68e01f73fa"
+  "escrow": "0x500dbfb5073d696a9a9c3d7f8c251c68e01f73fa",
+  "crePlatformForwarderMock": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
+  "crePlatformForwarderProduction": "0x76c9cf548b4179F8901cda1f8623568b58215E62",
+  "clauseEscrow": {
+    "address": "0xb95014696c71fb6d3269c5d09713075185191ea8",
+    "deployTx": "0x94bf19194f4b7cb0c81bad7b2c977edb66c09fcca78fd5d8cb2b669c555b8905",
+    "builtIn": "Arc Studio",
+    "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
+    "owner": "0xa3039A54856ed74B5AEc999EeF3fc954Ab010Cf6",
+    "note": "Owner is Arc Studio's shared deployer wallet: setForwarderAddress and the workflow setters cannot be called on this deployment."
+  }
 }
