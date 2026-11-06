@@ -1,10 +1,11 @@
 {
-  "name": "shared",
-  "module": "index.ts",
+  "name": "settld-shared",
   "type": "module",
   "private": true,
   "scripts": {
-    "typecheck": "bun check"
+    "test": "bun test",
+    "fixtures": "bun run make-fixtures.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "latest"

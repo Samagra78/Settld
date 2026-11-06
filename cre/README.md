@@ -1,15 +1,17 @@
-# cre/ (Person 1)
+# cre/
 
-Chainlink CRE workflows (TypeScript SDK ≥ 1.3.1, CLI ≥ 1.0.7, bun), targeting `arc-testnet`.
+Chainlink CRE workflows (TypeScript, bun) for Settld, targeting `arc-testnet`.
+Your Arc test key goes in `cre/.env` as `CRE_ETH_PRIVATE_KEY` (gitignored).
 
-Planned folders:
-- `ping/` (S2: minimal workflow writing a number to `Ping.sol` with `--broadcast`)
-- `wf0-certify/` (HTTP trigger → read clauses from Arc → checker → `Certify`)
-- `wf1-verify/` (log trigger on `ClauseSubmitted` → YouTube API → `Verified` / `Failed`)
-- `wf2-daily/` (V2, cron → `Vest` / `Broken`)
-- `wf3-court/` (V3, three LLMs → `Opinion`)
-- `shared/checker.ts` (deterministic, no network or randomness, so it can run inside WF0)
+| Workflow | Trigger | What it does | Status |
+|---|---|---|---|
+| `ping/` | cron | Sends one number to the Ping contract (proves CRE → Arc) | ✅ live (42) |
+| `wf0-certify/` | HTTP `{"dealId": N}` | Reads the deal from ClauseEscrow, rechecks specHash, runs `shared/checker.ts`, sends a Certify report | ✅ live (deal 1 certified) |
+| `wf1-verify/` | log `ClauseSubmitted` | YouTube check → Verified / Failed report | planned |
 
-Start from the official templates: `sports-resolution-ts`, `prediction-market-ts`, `keeper-bot` (https://github.com/smartcontractkit/cre-templates). Change `chainSelectorName` to `arc-testnet` and use the Arc forwarder from `docs/INTERFACES.md`.
+Run from this folder (`--broadcast` sends a real transaction through the mock forwarder):
 
-Secrets (YouTube / LLM keys) go in CRE secrets, never in the repo.
+```bash
+cre workflow simulate ping --target staging-settings --non-interactive --trigger-index 0 --broadcast
+cre workflow simulate wf0-certify --target staging-settings --non-interactive --trigger-index 0 --http-payload "{\"dealId\":1}" --broadcast
+```
