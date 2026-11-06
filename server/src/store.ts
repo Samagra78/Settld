@@ -48,6 +48,9 @@ export async function initStore() {
     mongo.collection('panel_votes').createIndex({ case_id: 1 }),
     mongo.collection('panel_votes').createIndex({ arbitrator: 1 }),
     mongo.collection('story').createIndex({ deal_id: 1, seq: 1 }),
+    // MongoDB deletes a session on its own once expiresAt (a Date) has passed
+    mongo.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    mongo.collection('sessions').createIndex({ address: 1 }),
   ]);
   console.log(`[store] MongoDB connected (database "${mongo.databaseName}")`);
   await importLegacyFiles();
@@ -111,6 +114,41 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `);
 
 // ---------------------------------------------------------------- World ID people
+
+// ---- login sessions ----------------------------------------------------------
+// MongoDB when connected (survives redeploys and restarts), otherwise memory only.
+// The caller passes the hashed session id, never the cookie value itself.
+export type StoredSession = {
+  address: string; walletId: string; blockchain: string;
+  userToken: string; tokenExpiresAt: number; expiresAt: number;
+};
+const memSessions = new Map<string, StoredSession>();
+
+export async function saveSession(id: string, s: StoredSession) {
+  if (!mongo) { memSessions.set(id, s); return; }
+  await mongo.collection('sessions').replaceOne({ _id: id as any },
+    { ...s, expiresAt: new Date(s.expiresAt), tokenExpiresAt: new Date(s.tokenExpiresAt) }, { upsert: true });
+}
+
+export async function loadSession(id: string): Promise<StoredSession | undefined> {
+  if (!mongo) return memSessions.get(id);
+  const d = await mongo.collection('sessions').findOne({ _id: id as any });
+  if (!d) return undefined;
+  return {
+    address: d.address, walletId: d.walletId, blockchain: d.blockchain, userToken: d.userToken,
+    tokenExpiresAt: new Date(d.tokenExpiresAt).getTime(), expiresAt: new Date(d.expiresAt).getTime(),
+  };
+}
+
+export async function touchSession(id: string, expiresAt: number) {
+  if (!mongo) { const s = memSessions.get(id); if (s) s.expiresAt = expiresAt; return; }
+  await mongo.collection('sessions').updateOne({ _id: id as any }, { $set: { expiresAt: new Date(expiresAt) } });
+}
+
+export async function deleteSession(id: string) {
+  if (!mongo) { memSessions.delete(id); return; }
+  await mongo.collection('sessions').deleteOne({ _id: id as any });
+}
 
 export async function recordVerifiedPerson(wallet: string, nullifier: string, environment: string) {
   if (mongo) {

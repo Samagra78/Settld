@@ -3,7 +3,7 @@ import axios from 'axios';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promisify, stripVTControlCharacters } from 'node:util';
 import {
@@ -33,7 +33,7 @@ import { registerWorldIdRoutes } from './worldid.js';
 import { registerCourtRoutes } from './court.js';
 import { registerAutomation } from './automation.js';
 import { registerArbitrationRoutes } from './arbitration.js';
-import { getState, initStore, recordEvent, setState } from './store.js';
+import { deleteSession, getState, initStore, loadSession, recordEvent, saveSession, setState, touchSession, type StoredSession } from './store.js';
 import { registerMonitor } from './monitor.js';
 import { registerExtractRoutes } from './extract.js';
 import { registerDevTools } from './devtools.js';
@@ -101,20 +101,19 @@ const reply = (res: Response, r: CircleResult) =>
 // keyed to that wallet. Protected routes then act ONLY as the session's wallet:
 // the client can't pass a different walletId, address or userToken.
 
-type Session = {
-  address: Address;
-  walletId: string;
-  blockchain: string;
-  userToken: string;
-  expiresAt: number;
-};
-const SESSION_MS = 55 * 60 * 1000; // Circle userTokens last 60 minutes
+// Sessions are stored in MongoDB (store.ts), so redeploys and restarts don't sign anyone out.
+// The expiry slides: every signed-in request pushes it SESSION_IDLE_MS into the future.
+// The Circle userToken inside still dies 60 min after sign-in; routes that need it (PIN actions)
+// then fail and the frontend asks for a fresh email code, which updates this same session.
+type Session = StoredSession & { address: Address };
+const SESSION_IDLE_MS = Number(process.env.SESSION_IDLE_HOURS || 12) * 3600_000;
+const CIRCLE_TOKEN_MS = 60 * 60 * 1000;
+const TOUCH_EVERY_MS = 60_000; // write the new expiry at most once a minute per session
 const COOKIE = 'settld_sid';
-const sessions = new Map<string, Session>();
-
-setInterval(() => {
-  for (const [sid, s] of sessions) if (s.expiresAt < Date.now()) sessions.delete(sid);
-}, 60_000).unref();
+// small in-process cache in front of the store; the store stays the source of truth
+const sessionCache = new Map<string, { s: Session; touchedAt: number }>();
+// the database only ever sees a hash of the cookie, so a leaked sessions collection can't be replayed
+const sessionKey = (sid: string) => createHash('sha256').update(sid).digest('hex');
 
 const readCookie = (header: string | undefined, name: string) =>
   header
@@ -122,18 +121,40 @@ const readCookie = (header: string | undefined, name: string) =>
     .map((part) => part.trim().split('='))
     .find(([k]) => k === name)?.[1];
 
-function getSession(req: Request): Session | undefined {
+const cookieOpts = () => ({
+  httpOnly: true,
+  sameSite: (FRONTEND_ORIGINS.length ? 'none' : 'lax') as 'none' | 'lax', // cross-site frontend needs none (+ secure)
+  secure: process.env.NODE_ENV === 'production' || FRONTEND_ORIGINS.length > 0,
+  maxAge: SESSION_IDLE_MS,
+});
+
+async function getSession(req: Request, res: Response): Promise<Session | undefined> {
   const sid = readCookie(req.headers.cookie, COOKIE);
-  const s = sid ? sessions.get(sid) : undefined;
-  if (!s || s.expiresAt < Date.now()) {
-    if (sid) sessions.delete(sid);
+  if (!sid || !/^[0-9a-f]{64}$/.test(sid)) return undefined;
+  const key = sessionKey(sid);
+  let hit = sessionCache.get(key);
+  if (!hit) {
+    const stored = await loadSession(key).catch(() => undefined);
+    if (stored) hit = { s: stored as Session, touchedAt: 0 }; // 0: write the slid expiry back on this first use
+  }
+  if (!hit || hit.s.expiresAt < Date.now()) {
+    sessionCache.delete(key);
+    if (hit) await deleteSession(key).catch(() => {});
     return undefined;
   }
-  return s;
+  // slide the expiry (cookie every time, database at most once a minute)
+  hit.s.expiresAt = Date.now() + SESSION_IDLE_MS;
+  if (Date.now() - hit.touchedAt > TOUCH_EVERY_MS) {
+    hit.touchedAt = Date.now();
+    void touchSession(key, hit.s.expiresAt).catch(() => {});
+  }
+  sessionCache.set(key, hit);
+  res.cookie(COOKIE, sid, cookieOpts());
+  return hit.s;
 }
 
-const requireWallet = (req: Request, res: Response, next: NextFunction) => {
-  const s = getSession(req);
+const requireWallet = async (req: Request, res: Response, next: NextFunction) => {
+  const s = await getSession(req, res);
   if (!s) return res.status(401).json({ message: 'Not signed in' });
   res.locals.session = s;
   next();
@@ -150,24 +171,28 @@ app.post('/api/session', async (req, res) => {
   const wallet = wallets.find((x) => x.blockchain === 'ARC-TESTNET') ?? wallets[0];
   if (!wallet) return res.status(404).json({ message: 'No wallet yet' });
 
-  // one live session per wallet
-  for (const [sid, s] of sessions) {
-    if (s.address.toLowerCase() === wallet.address.toLowerCase()) sessions.delete(sid);
-  }
-  const sid = randomBytes(32).toString('hex');
-  sessions.set(sid, {
+  // Several sessions per wallet are fine (tabs, devices). Signing in again in a browser that already has a
+  // session for this wallet (e.g. a fresh email code after the Circle token expired) updates that session in place.
+  const current = readCookie(req.headers.cookie, COOKIE);
+  const existing = current && /^[0-9a-f]{64}$/.test(current)
+    ? await loadSession(sessionKey(current)).catch(() => undefined) : undefined;
+  const sid = existing && existing.address.toLowerCase() === wallet.address.toLowerCase()
+    ? current! : randomBytes(32).toString('hex');
+  const session: Session = {
     address: wallet.address as Address,
     walletId: wallet.id,
     blockchain: wallet.blockchain,
     userToken: req.body.userToken,
-    expiresAt: Date.now() + SESSION_MS,
-  });
-  res.cookie(COOKIE, sid, {
-    httpOnly: true,
-    sameSite: FRONTEND_ORIGINS.length ? 'none' : 'lax', // cross-site frontend needs none (+ secure)
-    secure: process.env.NODE_ENV === 'production' || FRONTEND_ORIGINS.length > 0,
-    maxAge: SESSION_MS,
-  });
+    tokenExpiresAt: Date.now() + CIRCLE_TOKEN_MS,
+    expiresAt: Date.now() + SESSION_IDLE_MS,
+  };
+  try {
+    await saveSession(sessionKey(sid), session);
+  } catch {
+    return res.status(503).json({ message: 'Could not save your sign-in. Try again.' });
+  }
+  sessionCache.set(sessionKey(sid), { s: session, touchedAt: Date.now() });
+  res.cookie(COOKIE, sid, cookieOpts());
   res.json({ address: wallet.address, walletId: wallet.id, blockchain: wallet.blockchain });
 });
 
@@ -177,10 +202,13 @@ app.get('/api/me', requireWallet, (_req, res) => {
   res.json({ address, walletId, blockchain });
 });
 
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
   const sid = readCookie(req.headers.cookie, COOKIE);
-  if (sid) sessions.delete(sid);
-  res.clearCookie(COOKIE);
+  if (sid) {
+    sessionCache.delete(sessionKey(sid));
+    await deleteSession(sessionKey(sid)).catch(() => {});
+  }
+  res.clearCookie(COOKIE, { ...cookieOpts(), maxAge: undefined });
   res.json({ ok: true });
 });
 
@@ -213,8 +241,21 @@ app.post('/api/wallets', async (req, res) => {
 
 // 4. Token balances for the signed-in wallet: returns { tokenBalances: [...] }
 app.get('/api/balance', requireWallet, async (_req, res) => {
-  const { walletId, userToken } = sessionOf(res);
-  reply(res, await circle(`/v1/w3s/wallets/${walletId}/balances`, { userToken }));
+  const { walletId, userToken, tokenExpiresAt, address } = sessionOf(res);
+  if (Date.now() < tokenExpiresAt) {
+    const r = await circle(`/v1/w3s/wallets/${walletId}/balances`, { userToken });
+    if (r.ok || (r.status !== 401 && r.status !== 403)) return reply(res, r);
+  }
+  // the session outlives the 60-min Circle token: read the balance straight from Arc, in Circle's shape
+  try {
+    const bal = await arc.readContract({
+      address: USDC_ADDRESS as Address, abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+      functionName: 'balanceOf', args: [address],
+    });
+    res.json({ tokenBalances: [{ token: { symbol: 'USDC', decimals: 6, tokenAddress: USDC_ADDRESS }, amount: formatUnits(bal, 6) }], source: 'arc' });
+  } catch {
+    res.status(502).json({ message: 'Could not read your balance from Arc. Try again.' });
+  }
 });
 
 // ---- Escrow transactions (user-controlled) ---------------------------------
