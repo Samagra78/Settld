@@ -252,7 +252,9 @@ const contractCall = (
       contractAddress,
       abiFunctionSignature,
       abiParameters,
-      fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
+      // user-controlled wallets take a flat feeLevel; the nested `fee` object is ignored and Circle
+      // then rejects the call ("gasPrice may not be empty when FeeLevel ... are not set")
+      feeLevel: 'MEDIUM',
     },
   });
 };
@@ -532,6 +534,9 @@ app.post('/api/escrow/propose', requireWallet, async (req, res) => {
   if (!isUnits(total)) return bad(res, 'total must be a positive integer (6-decimal units)');
   const parsed = parseClauses(clauses);
   if ('error' in parsed) return bad(res, parsed.error);
+  if (String(creator).toLowerCase() === sessionOf(res).address.toLowerCase()) {
+    return bad(res, 'The freelancer must be a different wallet from yours.');
+  }
   await prepareTrackedEscrowAction(res, `proposeDeal(address,uint256,${CLAUSE_TUPLE}[])`,
     [creator, String(total), parsed.terms]);
 });
