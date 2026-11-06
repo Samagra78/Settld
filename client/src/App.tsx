@@ -7,6 +7,7 @@ import {
   CircleError,
   addFunds,
   getBalances,
+  getEscrowTransaction,
   initializeUser,
   listWallets,
   prepareEscrowAction,
@@ -58,6 +59,12 @@ function App() {
       .catch(() => say('Failed to get device id', true))
   }, [])
 
+  const refreshBalance = async (userToken: string, walletId: string) => {
+    const { tokenBalances } = await getBalances(userToken, walletId)
+    const entry = tokenBalances.find((t) => t.token?.symbol?.startsWith('USDC'))
+    setUsdc(entry?.amount ?? '0')
+  }
+
   const loadWallet = async (userToken: string) => {
     const { wallets } = await listWallets(userToken)
     if (wallets.length === 0) {
@@ -66,9 +73,7 @@ function App() {
     }
     const w = wallets[0]
     setWallet(w)
-    const { tokenBalances } = await getBalances(userToken, w.id)
-    const entry = tokenBalances.find((t) => t.token?.symbol?.startsWith('USDC'))
-    setUsdc(entry?.amount ?? '0')
+    await refreshBalance(userToken, w.id)
     say('Wallet loaded.')
   }
 
@@ -119,8 +124,10 @@ function App() {
   const runEscrowAction = async (action: EscrowAction) => {
     const sdk = sdkRef.current
     if (!sdk || !login || !wallet) throw new Error('Load your wallet before using escrow.')
+    if (wallet.blockchain !== 'ARC-TESTNET') throw new Error('Escrow requires an Arc Testnet wallet.')
 
-    const { challengeId } = await prepareEscrowAction(login.userToken, wallet.id, action)
+    const refId = crypto.randomUUID()
+    const { challengeId } = await prepareEscrowAction(login.userToken, wallet.id, refId, action)
     sdk.setAuthentication(login)
     await new Promise<void>((resolve, reject) => {
       sdk.execute(challengeId, (error, result) => {
@@ -129,6 +136,7 @@ function App() {
         else reject(new Error('Circle did not complete the transaction authorization.'))
       })
     })
+    return () => getEscrowTransaction(login.userToken, wallet.id, refId)
   }
 
   // Step 3: initialize the user (first time) -> challenge -> user sets PIN -> wallet.
@@ -203,7 +211,15 @@ function App() {
         </div>
       )}
 
-      {login && wallet && <EscrowPanel key={wallet.id} onAction={runEscrowAction} />}
+      {login && wallet && (
+        <EscrowPanel
+          key={wallet.id}
+          onAction={runEscrowAction}
+          onConfirmed={() => void refreshBalance(login.userToken, wallet.id).catch(() => {
+            say('Transaction confirmed. Could not refresh the wallet balance.', true)
+          })}
+        />
+      )}
       <PingStatus />
     </main>
   )

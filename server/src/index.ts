@@ -8,6 +8,7 @@ import {
   defineChain,
   http,
   isAddress,
+  maxUint256,
   parseAbi,
   parseUnits,
   zeroAddress,
@@ -136,53 +137,95 @@ const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.escrow;
 
 // Fixed contract + function per route (no generic "call anything" endpoint),
 // so this server can only ever prepare approve / fund / release.
-const contractCall = (
+const contractCall = async (
   userToken: string,
   walletId: string,
   contractAddress: string,
   abiFunctionSignature: string,
   abiParameters: string[],
-) =>
-  circle('/v1/w3s/user/transactions/contractExecution', {
-    method: 'POST',
-    userToken,
-    body: {
-      idempotencyKey: crypto.randomUUID(),
-      walletId,
-      contractAddress,
-      abiFunctionSignature,
-      abiParameters,
-      fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
-    },
-  });
+  reference: unknown,
+): Promise<CircleResult> => {
+  if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
+    return { status: 503, ok: false, json: { message: 'The Arc Testnet escrow address is invalid.' } };
+  }
+  const refId = reference ?? crypto.randomUUID();
+  if (typeof refId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(refId)) {
+    return { status: 400, ok: false, json: { message: 'Invalid transaction reference.' } };
+  }
+
+  try {
+    return await circle('/v1/w3s/user/transactions/contractExecution', {
+      method: 'POST',
+      userToken,
+      body: {
+        idempotencyKey: refId,
+        refId,
+        walletId,
+        contractAddress,
+        abiFunctionSignature,
+        abiParameters,
+        fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
+      },
+    });
+  } catch {
+    return { status: 502, ok: false, json: { message: 'Could not reach Circle to prepare the transaction.' } };
+  }
+};
+
+function readUint256(value: unknown): bigint | undefined {
+  const text = typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : value;
+  if (typeof text !== 'string' || !/^\d{1,78}$/.test(text)) return;
+  const units = BigInt(text);
+  if (units <= maxUint256) return units;
+}
 
 // amount is a string in 6-decimal units: 1 USDC = "1000000"
 
 // 5. Brand lets the escrow pull `amount` USDC
 app.post('/api/escrow/approve', async (req, res) => {
-  const { userToken, walletId, amount } = req.body;
+  const { userToken, walletId, amount, refId } = req.body;
+  const units = readUint256(amount);
+  if (units === undefined) {
+    return res.status(400).json({ message: 'Enter a USDC amount within the supported range.' });
+  }
   reply(res, await contractCall(userToken, walletId, USDC_ADDRESS,
-    'approve(address,uint256)', [ESCROW_ADDRESS, String(amount)]));
+    'approve(address,uint256)', [ESCROW_ADDRESS, units.toString()], refId));
 });
 
 // 6. Brand funds an escrow for a creator
 app.post('/api/escrow/fund', async (req, res) => {
-  const { userToken, walletId, creator, amount } = req.body;
+  const { userToken, walletId, creator, amount, refId } = req.body;
+  if (typeof creator !== 'string' || !isAddress(creator) || creator === zeroAddress) {
+    return res.status(400).json({ message: 'Enter a valid creator wallet address to fund escrow.' });
+  }
+  const units = readUint256(amount);
+  if (units === undefined || units === 0n) {
+    return res.status(400).json({ message: 'Enter a positive USDC amount within the supported range.' });
+  }
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'fund(address,uint256)', [creator, String(amount)]));
+    'fund(address,uint256)', [creator, units.toString()], refId));
 });
 
 // 7. Brand releases an escrow to the creator
 app.post('/api/escrow/release', async (req, res) => {
-  const { userToken, walletId, id } = req.body;
+  const { userToken, walletId, id, refId } = req.body;
+  const escrowId = readUint256(id);
+  if (escrowId === undefined) {
+    return res.status(400).json({ message: 'Enter a valid escrow ID.' });
+  }
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'release(uint256)', [String(id)]));
+    'release(uint256)', [escrowId.toString()], refId));
 });
 
 // 8. Recent transactions for a wallet (poll this for state + txHash)
 app.post('/api/transactions', async (req, res) => {
   const { userToken, walletId } = req.body;
-  reply(res, await circle(`/v1/w3s/transactions?walletIds=${walletId}`, { userToken }));
+  const query = new URLSearchParams({ walletIds: walletId, includeAll: 'true', pageSize: '50' });
+  try {
+    reply(res, await circle(`/v1/w3s/transactions?${query}`, { userToken }));
+  } catch {
+    res.status(502).json({ message: 'Could not reach Circle to check the transaction.' });
+  }
 });
 
 // ---- Mock "add funds" (testnet only) ----------------------------------------

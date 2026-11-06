@@ -1,25 +1,90 @@
 import { useState, type FormEvent } from 'react'
-import type { EscrowAction } from './api'
+import type { EscrowAction, getEscrowTransaction } from './api'
 
 const maxUint256 = (1n << 256n) - 1n
 const actionLabels = { approve: 'Approve USDC', fund: 'Fund escrow', release: 'Release escrow' }
+const failedStates = new Set(['FAILED', 'DENIED', 'CANCELLED'])
 
-export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAction) => Promise<void> }) {
+type CheckStatus = () => ReturnType<typeof getEscrowTransaction>
+type PendingTransaction = { kind: EscrowAction['kind']; checkStatus: CheckStatus }
+type Notice = { title: string; message: string; explorerUrl?: string; error?: boolean }
+
+export default function EscrowPanel({ onAction, onConfirmed }: {
+  onAction: (action: EscrowAction) => Promise<CheckStatus>
+  onConfirmed: () => void
+}) {
+
   const [amount, setAmount] = useState('')
   const [creator, setCreator] = useState('')
   const [escrowId, setEscrowId] = useState('')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [pending, setPending] = useState<PendingTransaction | null>(null)
+
+  async function track({ kind, checkStatus }: PendingTransaction, explorerUrl?: string) {
+    const title = actionLabels[kind]
+    setNotice({ title, message: 'Submitted. Waiting for Arc Testnet confirmation…', explorerUrl })
+    try {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const transaction = await checkStatus()
+        if (transaction?.txHash && /^0x[\da-f]{64}$/i.test(transaction.txHash)) {
+          const url = `https://explorer.testnet.arc.io/tx/${transaction.txHash}`
+          if (explorerUrl !== url) {
+            explorerUrl = url
+            setNotice({ title, message: 'Broadcast. Waiting for confirmation…', explorerUrl })
+          }
+        }
+
+        if (transaction?.state === 'COMPLETE' && explorerUrl) {
+          setNotice({ title, message: 'Confirmed on Arc Testnet.', explorerUrl })
+          setPending(null)
+          onConfirmed()
+          return
+        }
+
+        if (transaction && failedStates.has(transaction.state)) {
+          setNotice({
+            title,
+            message: transaction.errorReason || `Circle marked this transaction ${transaction.state.toLowerCase()}.`,
+            explorerUrl,
+            error: true,
+          })
+          setPending(null)
+          return
+        }
+
+        if (attempt < 29) await new Promise((resolve) => setTimeout(resolve, 2_000))
+      }
+
+      setNotice({ title, message: 'The receipt is still pending. Check status again in a moment.', explorerUrl })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not check Circle for a receipt.'
+      setNotice({ title, message: `Transaction submitted. Status check failed: ${message}`, explorerUrl, error: true })
+    }
+  }
 
   async function submit(action: EscrowAction) {
-    if (busy) return
+    if (busy || pending) return
+    const title = actionLabels[action.kind]
     setBusy(true)
-    setMessage('Waiting for Circle authorization…')
+    setNotice({ title, message: 'Waiting for Circle authorization…' })
     try {
-      await onAction(action)
-      setMessage(`${actionLabels[action.kind]} submitted.`)
+      const checkStatus = await onAction(action)
+      const transaction = { kind: action.kind, checkStatus }
+      setPending(transaction)
+      await track(transaction)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not submit the transaction.')
+      setNotice({ title, message: error instanceof Error ? error.message : 'Could not authorize the transaction.', error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function checkAgain() {
+    if (busy || !pending) return
+    setBusy(true)
+    try {
+      await track(pending, notice?.explorerUrl)
     } finally {
       setBusy(false)
     }
@@ -30,7 +95,7 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
     const [whole, fraction = ''] = amount.split('.')
     const units = BigInt(whole + fraction.padEnd(6, '0'))
     if (units <= 0n || units > maxUint256) {
-      setMessage('Enter a positive USDC amount within the supported range.')
+      setNotice({ title: 'USDC amount', message: 'Enter a positive amount within the supported range.', error: true })
       return
     }
 
@@ -41,8 +106,8 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
     }
 
     const address = creator.trim()
-    if (!/^0x[0-9a-f]{40}$/i.test(address) || /^0x0{40}$/i.test(address)) {
-      setMessage('Enter a valid creator wallet address to fund escrow.')
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address) || /^0x0{40}$/.test(address)) {
+      setNotice({ title: actionLabels.fund, message: 'Enter a valid creator wallet address.', error: true })
       return
     }
     void submit({ kind: 'fund', creator: address, amount: units.toString() })
@@ -52,7 +117,7 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
     event.preventDefault()
     const id = BigInt(escrowId)
     if (id > maxUint256) {
-      setMessage('Enter an escrow ID within the supported range.')
+      setNotice({ title: actionLabels.release, message: 'Enter an escrow ID within the supported range.', error: true })
       return
     }
     void submit({ kind: 'release', id: id.toString() })
@@ -63,7 +128,7 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
       <h2 id="escrow-heading">Arc Testnet escrow</h2>
       <p>Approve the USDC amount before funding escrow.</p>
       <form onSubmit={approveOrFund}>
-        <fieldset disabled={busy}>
+        <fieldset disabled={busy || !!pending}>
           <label>
             USDC amount{' '}
             <input required inputMode="decimal" pattern="[0-9]+([.][0-9]{1,6})?" maxLength={79}
@@ -78,7 +143,7 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
         </fieldset>
       </form>
       <form onSubmit={release}>
-        <fieldset disabled={busy}>
+        <fieldset disabled={busy || !!pending}>
           <label>
             Escrow ID{' '}
             <input required inputMode="numeric" pattern="[0-9]+" maxLength={78}
@@ -87,7 +152,25 @@ export default function EscrowPanel({ onAction }: { onAction: (action: EscrowAct
           <button type="submit">Release escrow</button>
         </fieldset>
       </form>
-      <p role="status">{message}</p>
+      {notice && (
+        <aside className="escrow-notice" aria-label="Escrow transaction">
+          <div role={notice.error ? 'alert' : 'status'}>
+            <strong>{notice.title}</strong>
+            <p>{notice.message}</p>
+          </div>
+          {notice.explorerUrl && (
+            <p><a href={notice.explorerUrl} target="_blank" rel="noreferrer">View transaction on Arc Explorer</a></p>
+          )}
+          {!busy && (
+            <div>
+              {pending && <button type="button" onClick={() => void checkAgain()}>Check status again</button>}{' '}
+              <button type="button" onClick={() => { setPending(null); setNotice(null) }}>
+                {pending ? 'Stop tracking' : 'Close'}
+              </button>
+            </div>
+          )}
+        </aside>
+      )}
     </section>
   )
 }

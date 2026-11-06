@@ -30,9 +30,9 @@ export class CircleError extends Error {
   }
 }
 
-async function post<T>(path: string, body: object): Promise<T> {
+async function post<T>(path: string, body: object, timeout?: number): Promise<T> {
   try {
-    const res = await http.post<T>(path, body)
+    const res = await http.post<T>(path, body, { timeout })
     return res.data
   } catch (e) {
     if (axios.isAxiosError(e) && e.response) {
@@ -60,8 +60,21 @@ export type EscrowAction =
   | { kind: 'fund'; creator: string; amount: string }
   | { kind: 'release'; id: string }
 
-export const prepareEscrowAction = (userToken: string, walletId: string, { kind, ...args }: EscrowAction) =>
-  post<{ challengeId: string }>(`/escrow/${kind}`, { userToken, walletId, ...args })
+export const prepareEscrowAction = (userToken: string, walletId: string, refId: string, { kind, ...args }: EscrowAction) =>
+  post<{ challengeId: string }>(`/escrow/${kind}`, { userToken, walletId, refId, ...args }, 10_000)
+
+type CircleTransaction = {
+  walletId: string
+  refId?: string
+  state: string
+  txHash?: string
+  errorReason?: string
+}
+
+export async function getEscrowTransaction(userToken: string, walletId: string, refId: string) {
+  const { transactions } = await post<{ transactions?: CircleTransaction[] }>('/transactions', { userToken, walletId }, 10_000)
+  return transactions?.find((tx) => tx.refId === refId && tx.walletId === walletId)
+}
 
 // Mock top-up (testnet): the server sends 10 test USDC to the user's own wallet.
 export const addFunds = (userToken: string) =>
