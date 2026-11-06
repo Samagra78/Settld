@@ -18,7 +18,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { signRequest } from '@worldcoin/idkit-core/signing';
-import { recordVerifiedPerson } from './db.js';
+import { recordVerifiedPerson } from './store.js';
 import type { Express, NextFunction, Request, Response } from 'express';
 import {
   encodeAbiParameters, encodePacked, isAddress, keccak256, parseAbi, parseAbiParameters, zeroAddress,
@@ -151,7 +151,7 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
     const hash = keccak256(encodePacked(['uint256', 'address'], [nullifier, wallet as Address]));
     const signature = await attester.signMessage({ message: { raw: hash } });
 
-    recordVerifiedPerson(wallet, nullifier.toString(), ENVIRONMENT()); // ✓ badge, kept in the database
+    await recordVerifiedPerson(wallet, nullifier.toString(), ENVIRONMENT()); // ✓ badge, kept in the database
     res.json({ nullifier: nullifier.toString(), signature, attester: attester.address, wallet });
   });
 

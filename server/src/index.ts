@@ -33,14 +33,19 @@ import { registerWorldIdRoutes } from './worldid.js';
 import { registerCourtRoutes } from './court.js';
 import { registerAutomation } from './automation.js';
 import { registerArbitrationRoutes } from './arbitration.js';
-import { recordEvent } from './db.js';
+import { getState, initStore, recordEvent, setState } from './store.js';
 import { registerMonitor } from './monitor.js';
 import { registerExtractRoutes } from './extract.js';
+import { registerDevTools } from './devtools.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
-app.use(cors());
+// Hosted with the frontend on another domain: FRONTEND_ORIGIN=https://your-site (comma-separated) allows it to
+// call the API with the login cookie. Unset = same-origin / local dev (Vite proxy).
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use(FRONTEND_ORIGINS.length ? cors({ origin: FRONTEND_ORIGINS, credentials: true }) : cors());
+app.set('trust proxy', 1); // behind the host's HTTPS proxy
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -159,8 +164,8 @@ app.post('/api/session', async (req, res) => {
   });
   res.cookie(COOKIE, sid, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    sameSite: FRONTEND_ORIGINS.length ? 'none' : 'lax', // cross-site frontend needs none (+ secure)
+    secure: process.env.NODE_ENV === 'production' || FRONTEND_ORIGINS.length > 0,
     maxAge: SESSION_MS,
   });
   res.json({ address: wallet.address, walletId: wallet.id, blockchain: wallet.blockchain });
@@ -652,6 +657,10 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 const shared = addresses as unknown as {
   usdc: string; aiCourt?: { address?: string }; jurorRegistry?: { address?: string }; clauseEscrow?: { deployBlock?: number };
 };
+// database first (MongoDB when MONGODB_URI is set, otherwise SQLite), then everything that uses it
+await initStore();
+const savedAutomation = (await getState('automation')) ?? undefined;
+
 const arbitration = registerArbitrationRoutes(app, {
   requireWallet, sessionOf, contractCall, reply,
   arc: arc as unknown as PublicClient,
@@ -670,9 +679,12 @@ registerAutomation(app, {
   escrowOverride: process.env.ESCROW_ADDRESS?.trim(),
   creProject,
   onEvent: recordEvent,
+  initialState: savedAutomation,
+  persist: (state) => setState('automation', state),
   archiveFromBlock: shared.clauseEscrow?.deployBlock ? BigInt(shared.clauseEscrow.deployBlock) : undefined,
 });
 registerExtractRoutes(app, requireWallet);
+registerDevTools(app, { arc: arc as unknown as PublicClient, chain: arcTestnet, escrow: ESCROW_ADDRESS, escrowAbi });
 registerMonitor(app, { escrow: ESCROW_ADDRESS, court: shared.aiCourt?.address, registry: shared.jurorRegistry?.address }, addresses.explorer);
 // World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
 registerWorldIdRoutes(app, {

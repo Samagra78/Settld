@@ -19,11 +19,9 @@
 //   GET  /api/arbitrators/stats             how many verified humans / arbitrators, open panels, cases decided
 //   GET  /api/worldid/status/:wallet        { verified } for the ✓ badge (no nullifier exposed)
 
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { isAddress, parseAbi, zeroAddress, type Abi, type Address, type PublicClient } from 'viem';
-import * as store from './db.js';
+import * as store from './store.js';
 
 type CircleResult = { status: number; ok: boolean; json: any };
 type Session = { address: string; walletId: string; userToken: string };
@@ -59,9 +57,9 @@ const courtAbi = parseAbi([
 const lc = (a: string) => a.toLowerCase();
 const isId = (v: unknown) => /^\d{1,30}$/.test(String(v));
 const toJson = (v: unknown) => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)));
-const transcriptOf = (caseId: string) => {
-  const f = path.resolve(process.cwd(), 'data', 'court', `${caseId}.json`);
-  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null;
+const transcriptOf = async (caseId: string) => {
+  const raw = await store.getTranscript(caseId);
+  return raw ? JSON.parse(raw) : null;
 };
 
 export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
@@ -104,12 +102,12 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
   app.use(['/api/arbitrator/commit', '/api/arbitrator/reveal', '/api/arbitrator/panel'], d.requireWallet, requireArbitrator);
 
   // ---------- public ----------
-  app.get('/api/arbitrators/stats', (_req, res) => res.json(store.stats()));
+  app.get('/api/arbitrators/stats', async (_req, res) => res.json(await store.stats()));
 
-  app.get('/api/worldid/status/:wallet', (req, res) => {
+  app.get('/api/worldid/status/:wallet', async (req, res) => {
     const w = String(req.params.wallet);
     if (!isAddress(w)) return res.status(400).json({ message: 'Invalid wallet.' });
-    const p = store.personOf(w);
+    const p = await store.personOf(w);
     res.json({ wallet: lc(w), verified: !!p, arbitrator: !!p?.arbitrator, verifiedAt: p?.verified_at ?? null });
   });
 
@@ -118,7 +116,7 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
     const wallet = d.sessionOf(res).address;
     try {
       const n = await nullifierOf(wallet);
-      res.json({ wallet: lc(wallet), verified: !!store.personOf(wallet), arbitrator: n !== 0n, canAccessCourt: n !== 0n });
+      res.json({ wallet: lc(wallet), verified: !!(await store.personOf(wallet)), arbitrator: n !== 0n, canAccessCourt: n !== 0n });
     } catch {
       res.status(502).json({ message: 'Could not check your arbitrator status on Arc.' });
     }
@@ -131,11 +129,11 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
       const [cases, withMajority, strikes, suspended] = await d.arc.readContract({
         address: registry!, abi: registryAbi, functionName: 'profile', args: [res.locals.nullifier as bigint],
       });
-      const history = store.casesOfArbitrator(wallet).map((row) => {
+      const history = await Promise.all((await store.casesOfArbitrator(wallet)).map(async (row) => {
         const closed = row.in_majority !== null && row.in_majority !== undefined;
-        const majority = closed ? store.panelVotes(Number(row.case_id)).filter((v) => v.in_majority === 1).length : 0;
+        const majority = closed ? (await store.panelVotes(Number(row.case_id))).filter((v) => v.in_majority === 1).length : 0;
         const fee = row.in_majority === 1 && row.status === 'final' && majority
-          ? (BigInt(String(store.getCaseRow(Number(row.case_id))?.appeal_fee ?? '0')) / BigInt(majority)).toString()
+          ? (BigInt(String((await store.getCase(Number(row.case_id)))?.appeal_fee ?? '0')) / BigInt(majority)).toString()
           : '0';
         return {
           caseId: row.case_id, dealId: row.deal_id, clauseId: row.clause_id, reason: row.reason,
@@ -144,7 +142,7 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
           outcome: !closed ? 'pending' : row.in_majority === 1 ? 'with_majority' : 'against_majority',
           feeEarnedUnits: fee, status: row.status, finalizedAt: row.finalized_at,
         };
-      });
+      }));
       const decided = history.filter((h) => h.outcome !== 'pending');
       res.json({
         wallet: lc(wallet),
@@ -169,7 +167,7 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
     const nullifier = res.locals.nullifier as bigint;
     try {
       const out = [];
-      for (const row of store.openPanels()) {
+      for (const row of await store.openPanels()) {
         const caseId = BigInt(String(row.case_id));
         const [client, freelancer, commitDeadline, revealEnd, commits, reveals, , closed] = await d.arc.readContract({
           address: registry!, abi: registryAbi, functionName: 'getPanel', args: [caseId],
@@ -203,16 +201,16 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
       const [, , commitDeadline, revealEnd, commits, reveals, opened, closed, band] = await d.arc.readContract({
         address: registry!, abi: registryAbi, functionName: 'getPanel', args: [BigInt(caseId)],
       });
-      const row = store.getCaseRow(Number(caseId));
+      const row = await store.getCase(Number(caseId));
       res.json(toJson({
         caseId, dealId: c.dealId, clauseId: c.clauseId, clause, evidence, reason: row?.reason ?? null,
         aiVerdict: { band: c.aiBand, rounds: c.nextRound, extensions: c.extensions },
-        aiTranscript: transcriptOf(caseId),
+        aiTranscript: await transcriptOf(caseId),
         appeal: { appellant: c.appellant, feePaid: c.feePaid, appealedAt: c.appealedAt },
         panel: {
           opened, closed, commitDeadline, revealDeadline: revealEnd, seatsTaken: commits, reveals,
           // votes stay hidden until the panel closes
-          band: closed ? band : null, votes: closed ? store.panelVotes(Number(caseId)) : null,
+          band: closed ? band : null, votes: closed ? await store.panelVotes(Number(caseId)) : null,
         },
         final: { finalized: c.finalized, band: c.finalized ? c.finalBand : null, byHumans: c.byHumans },
       }));

@@ -8,13 +8,10 @@
 //   GET  /api/court/:caseId/transcript  → the exact stored JSON text (hashed as-is by WF3)  [WF3 token, parties, arbitrators]
 //   GET  /api/court/:caseId             → parsed transcript + hash, for the courtroom screen  [parties, arbitrators]
 
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { keccak256, toBytes } from 'viem';
+import { getTranscript, putTranscript } from './store.js';
 
-const DIR = path.resolve(process.cwd(), 'data', 'court');
-const fileOf = (caseId: string) => path.join(DIR, `${caseId}.json`);
 const validCase = (s: string) => /^(\d{1,78}|dry-run)$/.test(s);
 
 export type CourtAccess = {
@@ -23,9 +20,8 @@ export type CourtAccess = {
 };
 
 export function registerCourtRoutes(app: Express, access?: CourtAccess) {
-  fs.mkdirSync(DIR, { recursive: true });
 
-  app.post('/api/court/:caseId/transcript', (req, res) => {
+  app.post('/api/court/:caseId/transcript', async (req, res) => {
     const token = process.env.COURT_WRITE_TOKEN?.trim();
     if (!token || req.get('x-court-token') !== token) return res.status(401).json({ message: 'Not allowed.' });
     const caseId = String(req.params.caseId);
@@ -41,7 +37,7 @@ export function registerCourtRoutes(app: Express, access?: CourtAccess) {
       return res.status(400).json({ message: 'Transcript is not JSON.' });
     }
     if (String(parsed.caseId) !== caseId) return res.status(400).json({ message: 'Transcript is for another case.' });
-    fs.writeFileSync(fileOf(caseId), transcript, 'utf8');
+    await putTranscript(caseId, transcript);
     res.json({ ok: true, hash });
   });
 
@@ -58,16 +54,17 @@ export function registerCourtRoutes(app: Express, access?: CourtAccess) {
 
   app.get('/api/court/:caseId/transcript', async (req, res) => {
     const caseId = String(req.params.caseId);
-    if (!validCase(caseId) || !fs.existsSync(fileOf(caseId))) return res.status(404).json({ message: 'No transcript yet.' });
+    const raw = validCase(caseId) ? await getTranscript(caseId) : null;
+    if (!raw) return res.status(404).json({ message: 'No transcript yet.' });
     if (!(await canRead(req, res))) return;
-    res.type('application/json').send(fs.readFileSync(fileOf(caseId), 'utf8'));
+    res.type('application/json').send(raw);
   });
 
   app.get('/api/court/:caseId', async (req, res) => {
     const caseId = String(req.params.caseId);
-    if (!validCase(caseId) || !fs.existsSync(fileOf(caseId))) return res.status(404).json({ message: 'No transcript yet.' });
+    const raw = validCase(caseId) ? await getTranscript(caseId) : null;
+    if (!raw) return res.status(404).json({ message: 'No transcript yet.' });
     if (!(await canRead(req, res))) return;
-    const raw = fs.readFileSync(fileOf(caseId), 'utf8');
     res.json({ caseId, transcriptHash: keccak256(toBytes(raw)), transcript: JSON.parse(raw) });
   });
 }

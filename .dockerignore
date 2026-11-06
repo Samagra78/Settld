@@ -1,0 +1,15 @@
+# Never ship secrets or local data in the image — pass them as environment variables on the host
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+server/data
+**/.cre_build_tmp.js
+client
+contracts
+design
+docs
+scripts
+.git
+.claude
+!docker-entrypoint.sh
