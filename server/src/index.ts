@@ -716,7 +716,9 @@ app.get('/api/transactions', requireWallet, async (_req, res) => {
     .filter((t) => t.operation === 'CONTRACT_EXECUTION')
     .sort((a, b) => Date.parse(a.createDate ?? '') - Date.parse(b.createDate ?? ''));
   const used = new Set<Tx>(callTxs.filter((t) => t.refId));
-  for (const action of trackedActions.get(walletId) ?? []) {
+  // newest action first: an older prepare whose PIN was cancelled never made a transaction, and matching
+  // oldest-first let it steal the next real transaction, so the action the user just approved never got tagged
+  for (const action of [...(trackedActions.get(walletId) ?? [])].reverse()) {
     if (callTxs.some((t) => t.refId === action.refId)) continue;
     const match = callTxs.find((t) => !used.has(t) && t.contractAddress?.toLowerCase() === action.contract
       && Date.parse(t.createDate ?? '') >= action.at);
