@@ -139,6 +139,11 @@ function staticErrors(terms: ClauseTerms[], total: bigint): string[] {
       if (t.dependsOn === i) errors.push(`C${i} depends on itself.`);
       else if (t.dependsOn >= terms.length) {
         errors.push(`C${i} depends on C${t.dependsOn}, which does not exist.`);
+      } else if (t.dependsOn > i) {
+        // the deployed ClauseEscrow only accepts dependencies on EARLIER clauses
+        errors.push(
+          `C${i} depends on C${t.dependsOn}, a later clause. A clause can only depend on an earlier one.`
+        );
       }
     }
   });

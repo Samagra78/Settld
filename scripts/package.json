@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "smoke": "bun run smoke.ts"
+    "smoke": "bun run smoke.ts",
+    "create-deal": "bun run create-deal.ts"
   },
   "dependencies": {
     "viem": "^2.57.16"

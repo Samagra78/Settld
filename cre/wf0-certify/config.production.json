@@ -1,0 +1,5 @@
+{
+  "chainSelectorName": "arc-testnet",
+  "escrowAddress": "0xb95014696c71fb6d3269c5d09713075185191ea8",
+  "gasLimit": "500000"
+}
