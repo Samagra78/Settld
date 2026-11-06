@@ -1,5 +1,16 @@
 # Deploying the Settld backend
 
+## How we run it (our CRE account has no API keys → "Plan B")
+| Where | What runs | Settings |
+|---|---|---|
+| **Host (Railway)** | API, World ID, arbitrator dashboard, court data, read-only `/monitor` — always online | `AUTOMATION_ENABLED=false`, `MONGODB_URI` (Atlas), `NODE_ENV=production` |
+| **Laptop** (`npm run dev` in `server/`) | watcher + keeper: runs the Chainlink CRE workflows (`cre` is logged in here) and settles payouts | `AUTOMATION_ENABLED=true`, **same** `MONGODB_URI` |
+
+Both use the same MongoDB Atlas database, so everything the laptop's automation does (certificates, AI court rounds,
+verdicts, payouts, transcripts) shows up on the hosted API immediately. `bun run host-env` (in `scripts/`) writes the
+host's settings to `.env.deploy` with automation off. If CRE API keys become available, set `CRE_API_KEY` on the host
+and run `HOST_AUTOMATION=true bun run host-env` to move the automation to the host too.
+
 One container runs everything the backend does: the API, the database connection, the watcher (runs the Chainlink
 CRE workflows with the `cre` CLI when contract events appear on Arc) and the keeper (settles payouts).
 The smart contracts are already deployed on Arc testnet (`shared/addresses.json`).
