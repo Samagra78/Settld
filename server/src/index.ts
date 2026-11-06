@@ -298,6 +298,11 @@ const escrowErrors: Record<string, string> = {
   RefundNotAllowed: 'This clause is not eligible for a refund.',
   DeadlinePassed: 'The submission deadline has passed.',
   SafeERC20FailedOperation: 'Check the wallet’s USDC balance and escrow approval.',
+  InvalidCreator: 'The freelancer must be a different wallet from yours.',
+  InvalidClauseCount: 'A deal needs 1 to 5 clauses.',
+  ZeroClauseAmount: 'Every clause needs an amount above 0.',
+  InvalidDependency: 'A clause can only depend on an earlier clause.',
+  TotalMismatch: 'The clause amounts must add up exactly to the deal total.',
 };
 
 function escrowError(error: unknown) {
@@ -462,7 +467,7 @@ app.post('/api/certify', requireWallet, async (req, res) => {
   }
 });
 
-async function checkEscrowAction(res: Response, action: string, args: (bigint | number | string)[]) {
+async function checkEscrowAction(res: Response, action: string, args: unknown[]) {
   if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
     res.status(503).json({ message: escrowUnavailable });
     return false;
@@ -536,6 +541,15 @@ app.post('/api/escrow/propose', requireWallet, async (req, res) => {
   if ('error' in parsed) return bad(res, parsed.error);
   if (String(creator).toLowerCase() === sessionOf(res).address.toLowerCase()) {
     return bad(res, 'The freelancer must be a different wallet from yours.');
+  }
+  // dry-run first, so a deal the contract would reject fails here with the reason, not after the PIN
+  const termsForSim = parsed.terms.map((t) => ({
+    kind: Number(t[0]), checkType: Number(t[1]), param: String(t[2]), deadline: BigInt(t[3]),
+    amount: BigInt(t[4]), dependsOn: Number(t[5]), onFail: Number(t[6]), vestDays: Number(t[7]),
+  }));
+  if (!await checkEscrowAction(res, 'proposeDeal', [creator, BigInt(total), termsForSim])) {
+    console.warn('[propose] rejected before PIN:', JSON.stringify({ total: String(total), clauses: parsed.terms }).slice(0, 600));
+    return;
   }
   await prepareTrackedEscrowAction(res, `proposeDeal(address,uint256,${CLAUSE_TUPLE}[])`,
     [creator, String(total), parsed.terms]);
