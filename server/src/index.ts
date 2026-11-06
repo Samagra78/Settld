@@ -30,6 +30,8 @@ import clauseEscrowAbi from '../../shared/abi/ClauseEscrow.json' with { type: 'j
 import certifyConfig from '../../cre/wf0-certify/config.staging.json' with { type: 'json' };
 import type { PublicClient } from 'viem';
 import { registerWorldIdRoutes } from './worldid.js';
+import { registerCourtRoutes } from './court.js';
+import { registerAutomation } from './automation.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -534,7 +536,10 @@ app.get('/api/transactions', requireWallet, async (_req, res) => {
 // to the signed-in user's wallet. The treasury key is a plain test key
 // (TREASURY_PRIVATE_KEY in server/.env); never reuse it on mainnet.
 
-const TOP_UP_USDC = '10';
+const TOP_UP_USDC = process.env.TOP_UP_USDC?.trim() || '10';
+// USDC is also the gas token on Arc, so the treasury keeps a little back for fees
+const TREASURY_GAS_RESERVE = parseUnits('0.05', 6);
+const TOP_UP_MIN = parseUnits('1', 6);
 const TOP_UP_COOLDOWN_MS = 30_000;
 const lastTopUp = new Map<string, number>();
 
@@ -605,19 +610,33 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
     if (Date.now() - last < TOP_UP_COOLDOWN_MS) {
       return res.status(429).json({ message: 'Please wait a few seconds between top-ups' });
     }
-    lastTopUp.set(to.toLowerCase(), Date.now());
 
     const account = privateKeyToAccount(key);
     const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
+    const usdcAbi = parseAbi([
+      'function transfer(address to, uint256 amount) returns (bool)',
+      'function balanceOf(address) view returns (uint256)',
+    ]);
+    const usdc = USDC_ADDRESS as Address;
 
-    const txHash = await wallet.writeContract({
-      address: USDC_ADDRESS as Address,
-      abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
-      functionName: 'transfer',
-      args: [to, parseUnits(TOP_UP_USDC, 6)],
-    });
+    // send the full amount if the treasury can, otherwise what it has left (keeping gas)
+    const available = await arc.readContract({ address: usdc, abi: usdcAbi, functionName: 'balanceOf', args: [account.address] });
+    const spendable = available > TREASURY_GAS_RESERVE ? available - TREASURY_GAS_RESERVE : 0n;
+    const wanted = parseUnits(TOP_UP_USDC, 6);
+    const amount = spendable >= wanted ? wanted : (spendable / 1_000_000n) * 1_000_000n; // whole USDC
+    if (amount < TOP_UP_MIN) {
+      return res.status(503).json({
+        message: `The demo treasury is out of test USDC (${formatUnits(available, 6)} left). ` +
+          `Top it up at faucet.circle.com (Arc Testnet) → ${account.address}`,
+      });
+    }
+
+    const txHash = await wallet.writeContract({ address: usdc, abi: usdcAbi, functionName: 'transfer', args: [to, amount] });
     await arc.waitForTransactionReceipt({ hash: txHash });
-    res.json({ txHash, amount: TOP_UP_USDC, to });
+    lastTopUp.set(to.toLowerCase(), Date.now());
+    // the chain is the source of truth; Circle's balance index can lag a few seconds behind
+    const balance = await arc.readContract({ address: usdc, abi: usdcAbi, functionName: 'balanceOf', args: [to] });
+    res.json({ txHash, amount: formatUnits(amount, 6), to, balance: formatUnits(balance, 6) });
   } catch (e) {
     console.error('funds/add failed:', e);
     res.status(500).json({ message: (e as Error).message.split('\n')[0] });
@@ -625,6 +644,15 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 });
 
 // World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
+registerCourtRoutes(app);
+registerAutomation(app, {
+  arc: arc as unknown as PublicClient,
+  chain: arcTestnet,
+  escrowAbi,
+  addresses: addresses as never,
+  escrowOverride: process.env.ESCROW_ADDRESS?.trim(),
+  creProject,
+});
 registerWorldIdRoutes(app, {
   requireWallet,
   sessionOf,

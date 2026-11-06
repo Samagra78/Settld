@@ -133,12 +133,24 @@ their band is final → `resolveDispute` pays band % to the freelancer and refun
 Studio's shared wallet can't transfer ownership). Attester = `0xDC930A8Fa2A3AE6820A30f2FF57863AaF772a861`.
 Wiring after deploy (owner, one-time): `escrow.setCourt(court)`, `court.setJury(registry)`, `registry.setCourt(court)`.
 
+**`shared/addresses.json` keys** (the watcher, keeper and `scripts/use-addresses.ts` read exactly these):
+`clauseEscrow.address`, `aiCourt.address`, `jurorRegistry.address`, each with the same extra fields as today's
+`clauseEscrow` (deployTx, builtIn, forwarder, owner). After a deploy: `bun run use-addresses` (from scripts/)
+copies them into the WF0/WF1/WF3 configs, then restart the server.
+
+**Automation (built, `server/src/automation.ts`):** with `AUTOMATION_ENABLED=true` the server watches Arc and runs
+WF0 on `DealAccepted`, WF1 on `ClauseSubmitted`, WF3 on `CaseOpened` / `RoundCompleted`. Every 30 s a keeper makes every
+permissionless move the contracts accept (each one dry-run first): release, refund (incl. cascade), expire,
+resolveDispute, resolveStuckDispute, closeCase, finalize, rescueFee, closePanel. Status for the UI:
+`GET /api/automation/status` → `{ enabled, contracts, running, queued, openCases, openPanels, recent: [{ at, kind, label, ok, detail }] }`.
+
 ## ClauseEscrow v2 (Samagra), changes only
 ```solidity
 constructor(address forwarder, address usdc, address owner)
 dispute(uint256 dealId, uint8 clauseId, string reason) // client OR freelancer; Verified or Failed; now <= disputeWindowEnd → Disputed (4); opens the court case
 disputeWindowEnd(uint256 dealId, uint8 clauseId) view returns (uint64)
 caseOf(uint256 dealId, uint8 clauseId) view returns (uint256 caseId)
+evidenceOf(uint256 dealId, uint8 clauseId) view returns (string) // ADDED: the string passed to submitEvidence (WF3 reads it for round 0)
 resolveDispute(uint256 dealId, uint8 clauseId)         // anyone (keeper); needs court.finalVerdict final
                                                        //   share = amount * band / 100 → freelancer, rest → client
                                                        //   status Released if share > 0, Refunded if share == 0
@@ -186,10 +198,15 @@ abi.encode(uint8 kind /*6*/, uint256 caseId, uint8 round,
            uint8[3] bands, uint16[3] wordsUsed, bool[3] wantsExtend, bool[3] isFinal,
            uint8[3] citedMask, bytes32 transcriptHash)
 ```
-- Judges: 0 = Groq Llama 3.3 70B, 1 = Gemini Flash, 2 = OpenRouter free model.
+- Judges: 0 = Groq (OpenAI gpt-oss-120b), 1 = Google Gemini 3.5 Flash-Lite, 2 = NVIDIA NIM (Nemotron 3.5 Bolt): three different model makers (OpenAI, Google, NVIDIA).
 - Evidence bits for `citedMask`: **0 = clause terms, 1 = submitted evidence, 2 = dispute reason**.
 - Round 0 = blind opinions; later rounds = discussion. WF3 counts and truncates words; the full transcript is stored
   off-chain and its hash is on-chain.
+- **Built:** `cre/wf3-court/` (rules in `court.ts`, 10 tests; full 3-round debate passes in `cre workflow simulate`).
+  Encoder: `encodeRoundReport` in `shared/report.ts`. WF3 sends one report per round only while the case is open
+  (not all final, rounds left, more than 20 s before the deadline). On the last round every judge is forced final.
+  A judge that is already final stays final and silent. A turn with no valid answer keeps the previous band
+  (50 on round 0). The keeper then calls `closeCase`.
 
 ## JurorRegistry v2 (Mehak). Human arbitrators, appeal only, never moves money
 ```solidity
@@ -204,6 +221,8 @@ closePanel(uint256 caseId)                                       // anyone (keep
 decision(uint256 caseId) view returns (bool decided, uint8 band, address[] majority)
 profile(uint256 nullifier) view returns (uint32 cases, uint32 withMajority, uint8 strikes, bool suspended)
 nullifierOf(address) / walletOf(uint256) / isRegistered(address)
+// extra read helpers (built): getPanel(caseId), revealDeadline(caseId), commitmentHash(caseId, band, salt, voter), seated(caseId, nullifier)
+// ABI: shared/abi/JurorRegistry.json. Old v1 vote()/MockEscrowView are gone.
 
 PANEL_SIZE 3 · COMMIT_SECS 120 (from openPanel) · REVEAL_SECS 60 (from 3rd commit or commit deadline) · MAX_STRIKES 2
 event PersonRegistered(uint256 indexed nullifier, address indexed wallet)
@@ -233,14 +252,15 @@ Rules:
 | `POST /api/worldid/rp-context` | — (signed in) | `{ rp_context, signal, action, environment }` | V1c |
 | `POST /api/worldid/verify` | IDKit result (as-is) | `{ nullifier, signature, attester, wallet }` | V1c |
 | `POST /api/jury/register` | `{ nullifier, signature }` | Circle `{ challengeId }` | V1c |
-| `POST /api/jury/vote` | `{ dealId, clauseId, payCreator }` | Circle `{ challengeId }` | V1c (replaced in V2 by commit/reveal below) |
-| `GET /api/jury/:dealId/:clauseId` | — | `{ decided, payCreator, votesPay, votesRefund, registered }` | V1c (replaced in V2) |
-| `GET /api/court/:caseId` | — | `{ dealId, clauseId, reason, deadline, wordBudget, rounds: [{ round, judges: [{ band, wordsUsed, wantsExtend, isFinal, citedMask, text }] }], aiBand?, appealDeadline?, appealFee, final?, band? }` | V2 |
+| `GET /api/arbitrator/panel/:caseId` | — | `{ opened, closed, decided, commitDeadline, revealDeadline, commits, reveals, seats, band, majority, mySeat }` | V2 (built) |
+| `GET /api/court/:caseId` | — | `{ caseId, transcriptHash, transcript: { reason, terms, evidence, judges[3], deadline0, rounds: [{ round, extensionGranted, wordBudget, deadline, judges: [{ band, statement, cited, wantsExtend, isFinal, wordsUsed, note? }] }] } }`. Chain fields (aiBand, appealDeadline, appealFee, final band) are added after deploy | V2 (built: transcript part) |
+| `GET /api/court/:caseId/transcript` | — | the exact stored transcript JSON (its keccak256 = on-chain transcriptHash) | V2 (built) |
+| `POST /api/court/:caseId/transcript` | `{ transcript, hash }` + header `x-court-token` | `{ ok }` (WF3 only; hash checked) | V2 (built) |
 | `POST /api/court/:caseId/appeal` | — | Circle `{ challengeId }` (approve + appeal) | V2 |
-| `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server keeps the salt for the reveal | V2 |
-| `POST /api/arbitrator/reveal` | `{ caseId }` | Circle `{ challengeId }` | V2 |
+| `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server derives the salt and remembers the band | V2 (built) |
+| `POST /api/arbitrator/reveal` | `{ caseId, band? }` | Circle `{ challengeId }` | V2 (built) |
 | `GET /api/arbitrator/cases` | — | open panels I can join | V2 |
-| `GET /api/arbitrator/profile` | — | `{ registered, cases, withMajority, strikes, suspended }` | V2 |
+| `GET /api/arbitrator/profile` | — | `{ registered, cases, withMajority, strikes, suspended }` | V2 (built) |
 
 ## Hand-offs
 - P2 → after each deploy: addresses in this file + ABI JSON in `shared/abi/`
