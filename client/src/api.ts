@@ -105,4 +105,4 @@ export async function getDealTransaction(refId: string) {
 
 // Mock top-up (testnet): the server sends 10 test USDC to the signed-in wallet.
 export const addFunds = () =>
-  post<{ txHash: string; amount: string; to: string }>('/funds/add', {})
+  post<{ txHash: string; amount: string; to: string; balance?: string }>('/funds/add', {})

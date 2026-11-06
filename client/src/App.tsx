@@ -108,8 +108,9 @@ function App() {
       setAdding(true)
       say('Processing payment...')
       const r = await addFunds()
-      say(`Added ${r.amount} USDC (test funds). Updating balance...`)
-      await loadBalance()
+      // use the on-chain balance the server read after the transfer (Circle's index can lag a few seconds)
+      if (r.balance !== undefined) setUsdc(r.balance)
+      else await loadBalance()
       say(`Added ${r.amount} USDC (test funds).`)
     } catch (e) {
       say((e as Error).message, true)
