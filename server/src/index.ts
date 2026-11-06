@@ -7,14 +7,17 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  formatUnits,
   http,
   isAddress,
   parseAbi,
   parseUnits,
+  zeroAddress,
   type Address,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import addresses from '../../shared/addresses.json' with { type: 'json' };
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -196,7 +199,7 @@ app.get('/api/balance', requireWallet, async (_req, res) => {
 // The browser SDK then runs the challenge, where the user enters their PIN.
 
 const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'; // 6 decimals
-const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS!;
+const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.escrow;
 
 // Fixed contract + function per route (no generic "call anything" endpoint),
 // so this server can only ever prepare approve / fund / release.
@@ -229,7 +232,8 @@ const bad = (res: Response, message: string) => res.status(400).json({ message }
 // 5. Brand lets the escrow pull `amount` USDC
 app.post('/api/escrow/approve', requireWallet, async (req, res) => {
   if (!isUnits(req.body.amount)) return bad(res, 'amount must be a positive integer (6-decimal units)');
-  const { walletId, userToken } = sessionOf(res);
+  const { walletId, userToken, blockchain } = sessionOf(res);
+  if (blockchain !== 'ARC-TESTNET') return bad(res, 'Approval requires an Arc Testnet wallet');
   reply(res, await contractCall(userToken, walletId, USDC_ADDRESS,
     'approve(address,uint256)', [ESCROW_ADDRESS, String(req.body.amount)]));
 });
@@ -273,6 +277,53 @@ const arcTestnet = defineChain({
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? 'https://rpc.testnet.arc.network'] } },
 });
+const arc = createPublicClient({ chain: arcTestnet, transport: http() });
+const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
+
+app.get('/api/ping', requireWallet, async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const address = addresses.ping.trim();
+  if (!isAddress(address) || address === zeroAddress) {
+    return res.status(503).json({ error: 'Set the Arc Testnet Ping contract address in shared/addresses.json.' });
+  }
+
+  try {
+    const last = await arc.readContract({ address, abi: pingAbi, functionName: 'lastNumber' });
+    res.json({ last: last.toString() });
+  } catch {
+    res.status(502).json({ error: 'Unable to read the Ping contract.' });
+  }
+});
+
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api/wallet/:role', async (req, res) => {
+    const { role } = req.params;
+    if (role !== 'brand' && role !== 'creator') {
+      return res.status(400).json({ error: 'Choose brand or creator.' });
+    }
+
+    const walletId = (role === 'brand' ? process.env.CIRCLE_BRAND_WALLET_ID : process.env.CIRCLE_CREATOR_WALLET_ID)?.trim();
+    if (!process.env.CIRCLE_API_KEY?.trim() || !walletId) {
+      return res.status(503).json({ error: 'Circle wallet configuration is missing for this role.' });
+    }
+
+    try {
+      const result = await circle(`/v1/w3s/wallets/${encodeURIComponent(walletId)}`);
+      const wallet = (result.json.data as { wallet?: { address: string; blockchain: string } } | undefined)?.wallet;
+      if (!result.ok || wallet?.blockchain !== 'ARC-TESTNET' || !isAddress(wallet.address)) {
+        return res.status(502).json({ error: 'Expected a valid Arc Testnet wallet from Circle.' });
+      }
+      const balance = await arc.getBalance({ address: wallet.address });
+      res.set('Cache-Control', 'no-store').json({
+        role,
+        address: wallet.address,
+        usdcBalance: formatUnits(balance, arcTestnet.nativeCurrency.decimals),
+      });
+    } catch {
+      res.status(502).json({ error: 'Unable to read the wallet or its USDC balance.' });
+    }
+  });
+}
 
 // 9. Send TOP_UP_USDC from the treasury to the caller's own wallet
 app.post('/api/funds/add', requireWallet, async (_req, res) => {
@@ -291,7 +342,6 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 
     const account = privateKeyToAccount(key);
     const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
-    const pub = createPublicClient({ chain: arcTestnet, transport: http() });
 
     const txHash = await wallet.writeContract({
       address: USDC_ADDRESS as Address,
@@ -299,7 +349,7 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
       functionName: 'transfer',
       args: [to, parseUnits(TOP_UP_USDC, 6)],
     });
-    await pub.waitForTransactionReceipt({ hash: txHash });
+    await arc.waitForTransactionReceipt({ hash: txHash });
     res.json({ txHash, amount: TOP_UP_USDC, to });
   } catch (e) {
     console.error('funds/add failed:', e);

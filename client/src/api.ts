@@ -74,6 +74,9 @@ export const logout = () => post<{ ok: boolean }>('/logout', {})
 
 export const getBalances = () => get<{ tokenBalances: TokenBalance[] }>('/balance')
 
+export const prepareApproval = (amount: string) =>
+  post<{ challengeId: string }>('/escrow/approve', { amount })
+
 // Mock top-up (testnet): the server sends 10 test USDC to the signed-in wallet.
 export const addFunds = () =>
   post<{ txHash: string; amount: string; to: string }>('/funds/add', {})
