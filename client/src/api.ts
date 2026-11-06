@@ -54,3 +54,7 @@ export const listWallets = (userToken: string) =>
 
 export const getBalances = (userToken: string, walletId: string) =>
   post<{ tokenBalances: TokenBalance[] }>('/balance', { userToken, walletId })
+
+// Mock top-up (testnet): the server sends 10 test USDC to the user's own wallet.
+export const addFunds = (userToken: string) =>
+  post<{ txHash: string; amount: string; to: string }>('/funds/add', { userToken })

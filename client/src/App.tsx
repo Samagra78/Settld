@@ -3,6 +3,7 @@ import { W3SSdk } from '@circle-fin/w3s-pw-web-sdk'
 import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
 import {
   CircleError,
+  addFunds,
   getBalances,
   initializeUser,
   listWallets,
@@ -65,6 +66,24 @@ function App() {
     const entry = tokenBalances.find((t) => t.token?.symbol?.startsWith('USDC'))
     setUsdc(entry?.amount ?? '0')
     say('Wallet loaded.')
+  }
+
+  // Mock card top-up: the server sends 10 test USDC from a treasury wallet.
+  const [adding, setAdding] = useState(false)
+  const topUp = async () => {
+    if (!login) return
+    try {
+      setAdding(true)
+      say('Processing payment...')
+      const r = await addFunds(login.userToken)
+      say(`Added ${r.amount} USDC (test funds). Updating balance...`)
+      await loadWallet(login.userToken)
+      say(`Added ${r.amount} USDC (test funds).`)
+    } catch (e) {
+      say((e as Error).message, true)
+    } finally {
+      setAdding(false)
+    }
   }
 
   // Step 1: ask Circle to email an OTP; hand the session tokens to the SDK.
@@ -155,6 +174,12 @@ function App() {
           </p>
           <p>
             <strong>USDC:</strong> {usdc}
+          </p>
+          <button onClick={topUp} disabled={adding}>
+            {adding ? 'Adding...' : 'Add $10 (test funds)'}
+          </button>
+          <p style={{ fontSize: 12, opacity: 0.7 }}>
+            Mock payment: nothing is charged. Testnet USDC is sent to your wallet.
           </p>
         </div>
       )}
