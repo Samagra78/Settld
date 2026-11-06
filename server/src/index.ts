@@ -26,7 +26,7 @@ const arcTestnet = defineChain({
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.network'] } },
 });
 const arc = createPublicClient({ chain: arcTestnet, transport: http() });
-const pingAbi = parseAbi(['function last() view returns (uint256)']);
+const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -48,7 +48,7 @@ app.get('/api/ping', async (_req, res) => {
   }
 
   try {
-    const last = await arc.readContract({ address, abi: pingAbi, functionName: 'last' });
+    const last = await arc.readContract({ address, abi: pingAbi, functionName: 'lastNumber' });
     res.json({ last: last.toString() });
   } catch {
     res.status(502).json({ error: 'Unable to read the Ping contract.' });
