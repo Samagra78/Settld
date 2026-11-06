@@ -203,8 +203,8 @@ app.get('/api/balance', requireWallet, async (_req, res) => {
 // These routes only *prepare* a transaction and return a challengeId.
 // The browser SDK then runs the challenge, where the user enters their PIN.
 
-const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'; // 6 decimals
-const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() ?? '';
+const USDC_ADDRESS = addresses.usdc; // 6 decimals
+const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.clauseEscrow.address;
 const escrowAbi = clauseEscrowAbi as Abi;
 const escrowUnavailable = 'ClauseEscrow is awaiting its Arc Testnet deployment address.';
 
@@ -268,8 +268,8 @@ const escrowErrors: Record<string, string> = {
   NotCertified: 'Chainlink must certify the deal before it can be funded.',
   AlreadyFunded: 'This deal is already funded.',
   NotFunded: 'The deal must be funded before a clause can be released.',
-  WrongStatus: 'The clause must be verified and awaiting release.',
-  WindowOpen: 'The 120-second dispute window is still open.',
+  InvalidClauseStatus: 'The clause must be verified and awaiting release.',
+  ReleaseWindowActive: 'The 120-second dispute window is still open.',
   DependencyNotReleased: 'The clause this depends on must be released first.',
   SafeERC20FailedOperation: 'Check the wallet’s USDC balance and escrow approval.',
 };
@@ -447,10 +447,10 @@ const TOP_UP_COOLDOWN_MS = 30_000;
 const lastTopUp = new Map<string, number>();
 
 const arcTestnet = defineChain({
-  id: 5042002,
+  id: addresses.chainId,
   name: 'Arc Testnet',
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? 'https://rpc.testnet.arc.network'] } },
+  rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || addresses.rpc] } },
 });
 const arc = createPublicClient({ chain: arcTestnet, transport: http() });
 const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
