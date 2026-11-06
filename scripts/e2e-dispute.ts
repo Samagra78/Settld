@@ -49,7 +49,7 @@ const waitFor = async <T>(what: string, check: () => Promise<T | undefined>, tim
   while (Date.now() < end) {
     const v = await check().catch(() => undefined);
     if (v !== undefined && v !== false) return v as T;
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 10000));
   }
   throw new Error(`timed out waiting for: ${what}`);
 };

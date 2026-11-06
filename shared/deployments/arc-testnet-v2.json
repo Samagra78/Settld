@@ -6,14 +6,16 @@
     "deployTx": "0xe061d98605e44d92138d1ebf9f06508bd1ff3b9b946d5a6982ae310745792514",
     "builtIn": "Arc Studio (source); deployed with Hardhat",
     "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
-    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4"
+    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
+    "deployBlock": 71059039
   },
   "aiCourt": {
     "address": "0xb8f86C3f51e31c67cf27D55d788c80ac95B9A2b0",
     "deployTx": "0xc1cf2c61775137b1323760222d1250c6174b94d1270529b00b83484df505471e",
     "builtIn": "Arc Studio (source); deployed with Hardhat",
     "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
-    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4"
+    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
+    "deployBlock": 71059044
   },
   "jurorRegistry": {
     "address": "0xE932eCA0dEBB7A939749F035EA4209F43c42bC7E",
@@ -21,6 +23,7 @@
     "builtIn": "Arc Studio (source); deployed with Hardhat",
     "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
     "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
-    "attester": "0xDC930A8Fa2A3AE6820A30f2FF57863AaF772a861"
+    "attester": "0xDC930A8Fa2A3AE6820A30f2FF57863AaF772a861",
+    "deployBlock": 71059055
   }
 }

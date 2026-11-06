@@ -21,7 +21,7 @@ import path from 'node:path';
 import { stripVTControlCharacters, promisify } from 'node:util';
 import type { Express } from 'express';
 import {
-  createWalletClient, http, isAddress, parseAbi, parseAbiItem, zeroAddress,
+  createWalletClient, http, isAddress, parseAbi, parseAbiItem, parseEventLogs, zeroAddress,
   type Abi, type AbiEvent, type Address, type Chain, type Hex, type PublicClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -39,6 +39,38 @@ export type AutomationDeps = {
   addresses: { clauseEscrow?: { address?: string }; aiCourt?: { address?: string }; jurorRegistry?: { address?: string } };
   escrowOverride?: string;
   creProject: string;
+  /** Called once for every archived contract event (the database indexer). */
+  onEvent?: (e: { name: string; contract: string; args: Record<string, unknown>; txHash: string; logIndex: number; block: bigint }) => void;
+  /** Block to backfill the archive from on first start (e.g. the escrow's deploy block). */
+  archiveFromBlock?: bigint;
+};
+
+// Events archived into the database (by contract). Job triggers above are a subset.
+const ARCHIVE = {
+  escrow: parseAbi([
+    'event DealProposed(uint256 indexed dealId, address indexed brand, address indexed creator, bytes32 specHash)',
+    'event DealAccepted(uint256 indexed dealId)',
+    'event DealCertified(uint256 indexed dealId)',
+    'event DealFunded(uint256 indexed dealId, uint256 total)',
+    'event ClauseSubmitted(uint256 indexed dealId, uint8 clauseId, string videoId)',
+    'event ClauseDisputed(uint256 indexed dealId, uint8 clauseId, uint256 caseId, address indexed disputer, string reason)',
+  ]),
+  court: parseAbi([
+    'event CaseOpened(uint256 indexed caseId, uint256 dealId, uint8 clauseId, string reason, uint64 deadline)',
+    'event RoundCompleted(uint256 indexed caseId, uint8 round, bytes32 transcriptHash)',
+    'event ExtensionGranted(uint256 indexed caseId, uint16 wordBudget, uint64 deadline)',
+    'event AIVerdict(uint256 indexed caseId, uint8 band, uint64 appealDeadline)',
+    'event Appealed(uint256 indexed caseId, address by, uint256 fee)',
+    'event Finalized(uint256 indexed caseId, uint8 band, bool byHumans)',
+  ]),
+  registry: parseAbi([
+    'event PersonRegistered(uint256 indexed nullifier, address indexed wallet)',
+    'event PanelOpened(uint256 indexed caseId, uint64 commitDeadline)',
+    'event VoteCommitted(uint256 indexed caseId, address indexed arbitrator)',
+    'event VoteRevealed(uint256 indexed caseId, address indexed arbitrator, uint8 band)',
+    'event PanelClosed(uint256 indexed caseId, uint8 band, uint8 majoritySize)',
+    'event Struck(uint256 indexed nullifier, uint8 strikes, bool suspended)',
+  ]),
 };
 
 const courtAbi = parseAbi([
@@ -66,7 +98,7 @@ const EVENTS = {
 const STATUS = { Pending: 0, Submitted: 1, Verified: 2, Failed: 3, Disputed: 4, Released: 5, Refunded: 6 } as const;
 const NO_DEP = 255;
 
-type State = { lastBlock: string; cases: string[]; panels: string[]; settledDeals: string[]; seen: string[] };
+type State = { lastBlock: string; archivedTo?: string; cases: string[]; panels: string[]; settledDeals: string[]; seen: string[]; jobs?: Job[] };
 
 export function registerAutomation(app: Express, d: AutomationDeps) {
   const enabled = env('AUTOMATION_ENABLED') === 'true';
@@ -95,8 +127,14 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     }
   };
   const state = load();
+  // Jobs survive a restart: the one that was running and any still queued are resumed
+  if (state.jobs?.length) {
+    queue.push(...state.jobs);
+    console.log(`[automation] resuming ${state.jobs.length} saved workflow job(s): ${state.jobs.map((j) => j.label).join(', ')}`);
+  }
   const save = () => {
     state.seen = state.seen.slice(-500);
+    state.jobs = [...(running ? [running] : []), ...queue];
     fs.mkdirSync(path.dirname(stateFile), { recursive: true });
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
   };
@@ -128,6 +166,44 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     { address: registry, event: EVENTS.panelOpened, track: 'panels' },
   ];
 
+  type Log = { address: Address; eventName: string; args: Record<string, unknown>; transactionHash: Hex; logIndex: number; blockNumber: bigint };
+  const archiveEvents: { address?: Address; events: AbiEvent[] }[] = [
+    { address: escrow, events: ARCHIVE.escrow as unknown as AbiEvent[] },
+    { address: court, events: ARCHIVE.court as unknown as AbiEvent[] },
+    { address: registry, events: ARCHIVE.registry as unknown as AbiEvent[] },
+  ];
+  /** One getLogs for all contracts (address filter only — Arc rejects big topic filters), decoded here,
+   *  keeping only each event from its own contract. */
+  const fetchArchive = async (from: bigint, to: bigint): Promise<Log[]> => {
+    const parts = archiveEvents.filter((p) => p.address);
+    if (!parts.length) return [];
+    const raw = await d.arc.getLogs({ address: parts.map((p) => p.address!), fromBlock: from, toBlock: to } as never);
+    const logs = parseEventLogs({ abi: parts.flatMap((p) => p.events), logs: raw as never, strict: false }) as unknown as Log[];
+    return logs.filter((l) => parts.some((p) =>
+      p.address!.toLowerCase() === l.address.toLowerCase() && p.events.some((e) => e.name === l.eventName)));
+  };
+  const archive = (l: Log) => {
+    try {
+      d.onEvent?.({ name: l.eventName, contract: l.address, args: l.args, txHash: l.transactionHash, logIndex: l.logIndex, block: l.blockNumber });
+    } catch (e) {
+      console.error('[automation] archive:', (e as Error).message);
+    }
+  };
+
+  // First start: backfill the archive (no workflow jobs) from the deploy block, in 2000-block chunks
+  const backfill = async (until: bigint) => {
+    if (!d.onEvent || !d.archiveFromBlock || state.archivedTo) return;
+    let from = d.archiveFromBlock;
+    while (from <= until) {
+      const to = until - from > 1999n ? from + 1999n : until;
+      for (const l of await fetchArchive(from, to)) archive(l);
+      from = to + 1n;
+    }
+    state.archivedTo = until.toString();
+    save();
+    console.log(`[automation] archive backfilled from block ${d.archiveFromBlock} to ${until}`);
+  };
+
   let watching = false;
   const watch = async () => {
     if (watching) return;
@@ -135,20 +211,20 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     try {
       const latest = await d.arc.getBlockNumber();
       if (!state.lastBlock) {
-        state.lastBlock = latest.toString(); // start from now; don't replay history
+        state.lastBlock = latest.toString(); // jobs start from now; don't replay history
         save();
+        await backfill(latest); // …but the archive gets the history
         return;
       }
+      if (!state.archivedTo) await backfill(BigInt(state.lastBlock));
       const from = BigInt(state.lastBlock) + 1n;
       if (from > latest) return;
       const to = latest - from > 1999n ? from + 1999n : latest;
 
       // ONE log query per tick for every contract and event (Arc's public RPC rate-limits bursts)
       const active = sources.filter((s) => s.address);
-      const addresses = [...new Set(active.map((s) => s.address!))];
-      const all = (await d.arc.getLogs({
-        address: addresses, events: active.map((s) => s.event), fromBlock: from, toBlock: to,
-      } as never)) as unknown as { address: Address; eventName: string; args: Record<string, unknown>; transactionHash: Hex; logIndex: number }[];
+      const all = await fetchArchive(from, to);
+      for (const l of all) archive(l);
       for (const s of active) {
         const logs = all.filter((l) => l.eventName === s.event.name && l.address.toLowerCase() === s.address!.toLowerCase());
         for (const l of logs) {
@@ -164,6 +240,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
             const receipt = await d.arc.getTransactionReceipt({ hash: l.transactionHash });
             const eventIndex = receipt.logs.findIndex((r) => r.logIndex === l.logIndex);
             queue.push({ ...s.job(l), txHash: l.transactionHash, eventIndex: Math.max(0, eventIndex) });
+            save();
           }
         }
       }
@@ -200,18 +277,22 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     if (running) return;
     while (queue.length) {
       running = queue.shift()!;
+      save();
       const j = running;
-      // up to 2 attempts: the CRE CLI sometimes times out on its own login check
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      // Retries with back-off: the CRE CLI can time out on its login check, and Arc's public RPC
+      // rate-limits (429). Court rounds use short waits so they still land before the case deadline.
+      const waits = j.workflow === 'wf3-court' ? [10, 20, 30] : [20, 40, 80];
+      for (let attempt = 0; attempt <= waits.length; attempt++) {
         const r = await runWorkflow(j);
-        if (r.ok || attempt === 2) {
-          log({ kind: 'workflow', label: attempt > 1 ? `${j.label} (retry)` : j.label, ok: r.ok, detail: r.detail });
+        if (r.ok || attempt === waits.length) {
+          log({ kind: 'workflow', label: attempt > 0 ? `${j.label} (attempt ${attempt + 1})` : j.label, ok: r.ok, detail: r.detail });
           break;
         }
-        console.log(`[automation] ${j.label} failed (${r.detail.slice(0, 120)}), retrying in 10 s`);
-        await new Promise((res) => setTimeout(res, 10_000));
+        console.log(`[automation] ${j.label} failed (${r.detail.slice(0, 120)}), retrying in ${waits[attempt]} s`);
+        await new Promise((res) => setTimeout(res, waits[attempt] * 1000));
       }
       running = null;
+      save();
     }
   };
 
@@ -305,6 +386,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
   setInterval(() => void watch(), watchMs);
   setInterval(() => void keep(), keepMs);
   void watch();
+  if (queue.length) void drain(); // resume saved jobs
   console.log(
     `[automation] on — watching escrow ${escrow ?? '-'}, court ${court ?? '-'}, registry ${registry ?? '-'}; ` +
       `keeper ${keeper ? keeper.account.address : 'off'} every ${keepMs / 1000}s`
