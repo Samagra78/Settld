@@ -27,7 +27,7 @@ const APPEAL = process.argv.includes("--appeal") || process.env.E2E_APPEAL === "
 const ESCROW = shared.clauseEscrow.address as Address, COURT = shared.aiCourt.address as Address;
 const USDC = shared.usdc as Address;
 // Arc public RPC rate-limits bursts: every call retries with back-off (retryCount 8, 1.5 s base)
-const chain = defineChain({ id: shared.chainId, name: "Arc Testnet", nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: { default: { http: [shared.rpc] } } });
+const chain = defineChain({ id: shared.chainId, name: "Arc Testnet", nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: { default: { http: [process.env.ARC_RPC_URL || shared.rpc] } } });
 const pub = createPublicClient({ chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
 const client = createWalletClient({ account: privateKeyToAccount(process.env.BRAND_PRIVATE_KEY as Hex), chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
 const freelancer = createWalletClient({ account: privateKeyToAccount(process.env.TESTER_PRIVATE_KEY as Hex), chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });

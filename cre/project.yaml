@@ -3,9 +3,9 @@
 staging-settings:
   rpcs:
     - chain-name: arc-testnet
-      url: https://rpc.testnet.arc.network
+      url: https://arc-testnet.drpc.org
 
 production-settings:
   rpcs:
     - chain-name: arc-testnet
-      url: https://rpc.testnet.arc.network
+      url: https://arc-testnet.drpc.org

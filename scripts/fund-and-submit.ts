@@ -26,7 +26,7 @@ const USDC = shared.usdc as Address;
 const arc = defineChain({
   id: shared.chainId, name: "Arc Testnet",
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [shared.rpc] } },
+  rpcUrls: { default: { http: [process.env.ARC_RPC_URL || shared.rpc] } },
 });
 const brand = privateKeyToAccount(process.env.BRAND_PRIVATE_KEY as Hex);
 const creator = privateKeyToAccount(process.env.TESTER_PRIVATE_KEY as Hex);
