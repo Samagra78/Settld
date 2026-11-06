@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import axios from 'axios';
 import cors from 'cors';
-import express, { type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { randomBytes } from 'node:crypto';
 import {
   createPublicClient,
   createWalletClient,
   defineChain,
   http,
+  isAddress,
   parseAbi,
   parseUnits,
   type Address,
@@ -67,6 +69,95 @@ async function circle(
 const reply = (res: Response, r: CircleResult) =>
   res.status(r.status).json(r.ok ? r.json.data : r.json);
 
+// ---- Sessions: the server identifies the user by their wallet address -------
+// Circle login proves who controls a wallet (email OTP + PIN). POST /api/session
+// exchanges the short-lived Circle userToken for our own httpOnly cookie session
+// keyed to that wallet. Protected routes then act ONLY as the session's wallet:
+// the client can't pass a different walletId, address or userToken.
+
+type Session = {
+  address: Address;
+  walletId: string;
+  blockchain: string;
+  userToken: string;
+  expiresAt: number;
+};
+const SESSION_MS = 55 * 60 * 1000; // Circle userTokens last 60 minutes
+const COOKIE = 'settld_sid';
+const sessions = new Map<string, Session>();
+
+setInterval(() => {
+  for (const [sid, s] of sessions) if (s.expiresAt < Date.now()) sessions.delete(sid);
+}, 60_000).unref();
+
+const readCookie = (header: string | undefined, name: string) =>
+  header
+    ?.split(';')
+    .map((part) => part.trim().split('='))
+    .find(([k]) => k === name)?.[1];
+
+function getSession(req: Request): Session | undefined {
+  const sid = readCookie(req.headers.cookie, COOKIE);
+  const s = sid ? sessions.get(sid) : undefined;
+  if (!s || s.expiresAt < Date.now()) {
+    if (sid) sessions.delete(sid);
+    return undefined;
+  }
+  return s;
+}
+
+const requireWallet = (req: Request, res: Response, next: NextFunction) => {
+  const s = getSession(req);
+  if (!s) return res.status(401).json({ message: 'Not signed in' });
+  res.locals.session = s;
+  next();
+};
+const sessionOf = (res: Response) => res.locals.session as Session;
+
+// Sign in: userToken (from Circle login) -> session for that user's wallet
+app.post('/api/session', async (req, res) => {
+  const w = await circle('/v1/w3s/wallets', { userToken: req.body.userToken });
+  if (!w.ok) return reply(res, w);
+  const wallets =
+    (w.json.data as { wallets?: { id: string; address: string; blockchain: string }[] })
+      .wallets ?? [];
+  const wallet = wallets.find((x) => x.blockchain === 'ARC-TESTNET') ?? wallets[0];
+  if (!wallet) return res.status(404).json({ message: 'No wallet yet' });
+
+  // one live session per wallet
+  for (const [sid, s] of sessions) {
+    if (s.address.toLowerCase() === wallet.address.toLowerCase()) sessions.delete(sid);
+  }
+  const sid = randomBytes(32).toString('hex');
+  sessions.set(sid, {
+    address: wallet.address as Address,
+    walletId: wallet.id,
+    blockchain: wallet.blockchain,
+    userToken: req.body.userToken,
+    expiresAt: Date.now() + SESSION_MS,
+  });
+  res.cookie(COOKIE, sid, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: SESSION_MS,
+  });
+  res.json({ address: wallet.address, walletId: wallet.id, blockchain: wallet.blockchain });
+});
+
+// Who am I? Identity = wallet address.
+app.get('/api/me', requireWallet, (_req, res) => {
+  const { address, walletId, blockchain } = sessionOf(res);
+  res.json({ address, walletId, blockchain });
+});
+
+app.post('/api/logout', (req, res) => {
+  const sid = readCookie(req.headers.cookie, COOKIE);
+  if (sid) sessions.delete(sid);
+  res.clearCookie(COOKIE);
+  res.json({ ok: true });
+});
+
 // 1. Email OTP: returns { deviceToken, deviceEncryptionKey, otpToken }
 app.post('/api/auth/email', async (req, res) => {
   const { deviceId, email } = req.body;
@@ -94,9 +185,9 @@ app.post('/api/wallets', async (req, res) => {
   reply(res, await circle('/v1/w3s/wallets', { userToken: req.body.userToken }));
 });
 
-// 4. Token balances for one wallet: returns { tokenBalances: [...] }
-app.post('/api/balance', async (req, res) => {
-  const { userToken, walletId } = req.body;
+// 4. Token balances for the signed-in wallet: returns { tokenBalances: [...] }
+app.get('/api/balance', requireWallet, async (_req, res) => {
+  const { walletId, userToken } = sessionOf(res);
   reply(res, await circle(`/v1/w3s/wallets/${walletId}/balances`, { userToken }));
 });
 
@@ -131,36 +222,45 @@ const contractCall = (
 
 // amount is a string in 6-decimal units: 1 USDC = "1000000"
 
+const isUnits = (v: unknown) => /^\d+$/.test(String(v)) && BigInt(String(v)) > 0n;
+const isId = (v: unknown) => /^\d+$/.test(String(v));
+const bad = (res: Response, message: string) => res.status(400).json({ message });
+
 // 5. Brand lets the escrow pull `amount` USDC
-app.post('/api/escrow/approve', async (req, res) => {
-  const { userToken, walletId, amount } = req.body;
+app.post('/api/escrow/approve', requireWallet, async (req, res) => {
+  if (!isUnits(req.body.amount)) return bad(res, 'amount must be a positive integer (6-decimal units)');
+  const { walletId, userToken } = sessionOf(res);
   reply(res, await contractCall(userToken, walletId, USDC_ADDRESS,
-    'approve(address,uint256)', [ESCROW_ADDRESS, String(amount)]));
+    'approve(address,uint256)', [ESCROW_ADDRESS, String(req.body.amount)]));
 });
 
 // 6. Brand funds an escrow for a creator
-app.post('/api/escrow/fund', async (req, res) => {
-  const { userToken, walletId, creator, amount } = req.body;
+app.post('/api/escrow/fund', requireWallet, async (req, res) => {
+  const { creator, amount } = req.body;
+  if (!isAddress(creator)) return bad(res, 'creator must be a wallet address');
+  if (!isUnits(amount)) return bad(res, 'amount must be a positive integer (6-decimal units)');
+  const { walletId, userToken } = sessionOf(res);
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
     'fund(address,uint256)', [creator, String(amount)]));
 });
 
 // 7. Brand releases an escrow to the creator
-app.post('/api/escrow/release', async (req, res) => {
-  const { userToken, walletId, id } = req.body;
+app.post('/api/escrow/release', requireWallet, async (req, res) => {
+  if (!isId(req.body.id)) return bad(res, 'id must be a non-negative integer');
+  const { walletId, userToken } = sessionOf(res);
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'release(uint256)', [String(id)]));
+    'release(uint256)', [String(req.body.id)]));
 });
 
-// 8. Recent transactions for a wallet (poll this for state + txHash)
-app.post('/api/transactions', async (req, res) => {
-  const { userToken, walletId } = req.body;
+// 8. Recent transactions for the signed-in wallet (poll for state + txHash)
+app.get('/api/transactions', requireWallet, async (_req, res) => {
+  const { walletId, userToken } = sessionOf(res);
   reply(res, await circle(`/v1/w3s/transactions?walletIds=${walletId}`, { userToken }));
 });
 
 // ---- Mock "add funds" (testnet only) ----------------------------------------
 // Pretends to be a card top-up. A test-only treasury wallet sends 10 test USDC
-// to the logged-in user's own wallet. The treasury key is a plain test key
+// to the signed-in user's wallet. The treasury key is a plain test key
 // (TREASURY_PRIVATE_KEY in server/.env); never reuse it on mainnet.
 
 const TOP_UP_USDC = '10';
@@ -175,17 +275,13 @@ const arcTestnet = defineChain({
 });
 
 // 9. Send TOP_UP_USDC from the treasury to the caller's own wallet
-app.post('/api/funds/add', async (req, res) => {
+app.post('/api/funds/add', requireWallet, async (_req, res) => {
   try {
     const key = process.env.TREASURY_PRIVATE_KEY as Hex | undefined;
     if (!key) return res.status(500).json({ message: 'Treasury not configured' });
 
-    // Resolve the destination from the user's token, never from the request body
-    const w = await circle('/v1/w3s/wallets', { userToken: req.body.userToken });
-    if (!w.ok) return res.status(w.status).json(w.json);
-    const wallets = (w.json.data as { wallets: { address: string }[] }).wallets;
-    if (!wallets?.length) return res.status(400).json({ message: 'User has no wallet yet' });
-    const to = wallets[0].address as Address;
+    // Destination is always the signed-in wallet, never anything from the request
+    const to = sessionOf(res).address;
 
     const last = lastTopUp.get(to.toLowerCase()) ?? 0;
     if (Date.now() - last < TOP_UP_COOLDOWN_MS) {
