@@ -727,6 +727,77 @@ app.get('/api/transactions', requireWallet, async (_req, res) => {
   res.status(r.status).json(data);
 });
 
+// 8b. Wallet history for "Payouts & receipts": every completed transaction of this wallet that moved USDC,
+// with the real amount (summed from the USDC Transfer logs in its Arc receipt, so contract calls like
+// fundDeal count too), a plain label from the escrow/court events in the same receipt, and the tx hash.
+const receiptCache = new Map<string, Awaited<ReturnType<typeof arc.getTransactionReceipt>>>(); // receipts never change
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+const topicAddr = (t?: string) => (t ? `0x${t.slice(26)}`.toLowerCase() : '');
+
+app.get('/api/wallet/history', requireWallet, async (_req, res) => {
+  const { walletId, userToken, address } = sessionOf(res);
+  const me = address.toLowerCase();
+  const query = new URLSearchParams({ walletIds: walletId, includeAll: 'true', pageSize: '50' });
+  const r = await circle(`/v1/w3s/transactions?${query}`, { userToken });
+  if (!r.ok) return reply(res, r);
+  type Tx = { txHash?: string; state?: string; createDate?: string };
+  const txs = ((r.json.data as { transactions?: Tx[] }).transactions ?? [])
+    .filter((t) => t.txHash && (t.state === 'COMPLETE' || t.state === 'CONFIRMED'));
+  const seen = new Set<string>();
+  const unique = txs.filter((t) => !seen.has(t.txHash!) && seen.add(t.txHash!));
+
+  const usdc = USDC_ADDRESS.toLowerCase();
+  const escrow = ESCROW_ADDRESS.toLowerCase();
+  const court = String(addresses.aiCourt?.address ?? '').toLowerCase();
+  const treasuryKey = process.env.TREASURY_PRIVATE_KEY?.trim();
+  const treasury = treasuryKey ? privateKeyToAccount(treasuryKey as Hex).address.toLowerCase() : '';
+  const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+
+  const rows = await Promise.all(unique.map(async (t) => {
+    const hash = t.txHash as Hex;
+    let receipt = receiptCache.get(hash);
+    if (!receipt) {
+      receipt = await arc.getTransactionReceipt({ hash }).catch(() => undefined);
+      if (!receipt) return null;
+      receiptCache.set(hash, receipt);
+    }
+    // net USDC for this wallet, and who was on the other side
+    let net = 0n;
+    let counterparty = '';
+    for (const l of receipt.logs) {
+      if (l.address.toLowerCase() !== usdc || l.topics[0] !== TRANSFER_TOPIC) continue;
+      const from = topicAddr(l.topics[1]), to = topicAddr(l.topics[2]);
+      const value = BigInt(l.data);
+      if (to === me && from !== me) { net += value; counterparty = from; }
+      if (from === me && to !== me) { net -= value; counterparty = to; }
+    }
+    if (net === 0n) return null; // proposals, accepts, approvals: no money moved
+    const ev = parseEventLogs({ abi: escrowAbi, logs: receipt.logs.filter((l) => l.address.toLowerCase() === escrow) }) as unknown as
+      { eventName: string; args: Record<string, unknown> }[];
+    const find = (n: string) => ev.find((e) => e.eventName === n)?.args;
+    const promise = (a?: Record<string, unknown>) => (a ? `deal #${a.dealId}, promise ${Number(a.clauseId) + 1}` : '');
+    let what: string, kind: 'received' | 'paid' | 'locked' | 'returned', who: { icon: string; label: string };
+    if (find('DealFunded')) {
+      what = `Locked in deal #${find('DealFunded')!.dealId}`; kind = 'locked'; who = { icon: 'lock', label: 'You' };
+    } else if (counterparty === escrow) {
+      const settled = find('ClauseSettled'), split = find('ClauseSplit') ?? find('ClauseResolved');
+      const refunded = settled && Number(settled.status) === 6;
+      what = split ? `Court split · ${promise(split)}` : refunded ? `Refunded · ${promise(settled)}` : settled ? `Paid out · ${promise(settled)}` : 'From the escrow';
+      kind = net > 0n ? (refunded ? 'returned' : 'received') : 'locked';
+      who = { icon: split ? 'gear' : 'hex', label: split ? 'Court' : 'Chainlink' };
+    } else if (court && counterparty === court) {
+      what = net < 0n ? 'Appeal fee' : 'Arbitrator fee share'; kind = net < 0n ? 'paid' : 'received'; who = { icon: 'gear', label: 'Court' };
+    } else if (treasury && counterparty === treasury) {
+      what = 'Test USDC added'; kind = 'received'; who = { icon: 'plus', label: 'Test faucet' };
+    } else {
+      what = net < 0n ? `Sent to ${short(counterparty)}` : `From ${short(counterparty)}`;
+      kind = net < 0n ? 'paid' : 'received'; who = { icon: 'arrow', label: net < 0n ? 'You' : short(counterparty) };
+    }
+    return { id: hash, txHash: hash, at: t.createDate ?? '', what, who, amount: formatUnits(net, 6), kind };
+  }));
+  res.json({ explorer: addresses.explorer, payments: rows.filter(Boolean) });
+});
+
 // ---- Mock "add funds" (testnet only) ----------------------------------------
 // Pretends to be a card top-up. A test-only treasury wallet sends 10 test USDC
 // to the signed-in user's wallet. The treasury key is a plain test key
