@@ -14,6 +14,7 @@ import {
   isAddress,
   maxUint256,
   parseAbi,
+  parseEventLogs,
   parseUnits,
   zeroAddress,
   type Abi,
@@ -215,7 +216,7 @@ const contractCall = (
   walletId: string,
   contractAddress: string,
   abiFunctionSignature: string,
-  abiParameters: string[],
+  abiParameters: unknown[],
   refId?: string,
 ): Promise<CircleResult> => {
   if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
@@ -239,7 +240,6 @@ const contractCall = (
 // amount is a string in 6-decimal units: 1 USDC = "1000000"
 
 const isUnits = (v: unknown) => /^\d+$/.test(String(v)) && BigInt(String(v)) > 0n;
-const isId = (v: unknown) => /^\d+$/.test(String(v));
 const isDealId = (v: unknown): v is string | number => (
   (typeof v === 'string' || (typeof v === 'number' && Number.isSafeInteger(v)))
   && /^\d{1,78}$/.test(String(v)) && BigInt(v) <= maxUint256
@@ -264,6 +264,8 @@ const escrowErrors: Record<string, string> = {
   UnknownDeal: 'This deal does not exist.',
   UnknownClause: 'This clause does not exist on the deal.',
   NotBrand: 'Only the brand wallet can fund this deal.',
+  NotCreator: 'Only the creator wallet can perform this action.',
+  AlreadyAccepted: 'The creator has already accepted the deal.',
   NotAccepted: 'The creator must accept the deal before it can be funded.',
   NotCertified: 'Chainlink must certify the deal before it can be funded.',
   AlreadyFunded: 'This deal is already funded.',
@@ -271,6 +273,8 @@ const escrowErrors: Record<string, string> = {
   InvalidClauseStatus: 'The clause must be verified and awaiting release.',
   ReleaseWindowActive: 'The 120-second dispute window is still open.',
   DependencyNotReleased: 'The clause this depends on must be released first.',
+  RefundNotAllowed: 'This clause is not eligible for a refund.',
+  DeadlinePassed: 'The submission deadline has passed.',
   SafeERC20FailedOperation: 'Check the wallet’s USDC balance and escrow approval.',
 };
 
@@ -292,15 +296,24 @@ app.get('/api/escrow/deals/:dealId', requireWallet, async (req, res) => {
   const read = { address: ESCROW_ADDRESS, abi: escrowAbi, args };
   try {
     const [deal, certified, clauses] = await Promise.all([
-      arc.readContract({ ...read, functionName: 'getDeal' }) as Promise<{ accepted: boolean; funded: boolean }>,
+      arc.readContract({ ...read, functionName: 'getDeal' }) as Promise<{
+        brand: Address; creator: Address; total: bigint; accepted: boolean; funded: boolean;
+      }>,
       arc.readContract({ ...read, functionName: 'certified' }) as Promise<boolean>,
-      arc.readContract({ ...read, functionName: 'getClauses' }) as Promise<{ status: number }[]>,
+      arc.readContract({ ...read, functionName: 'getClauses' }) as Promise<{
+        status: number; amount: bigint; deadline: bigint; checkType: number; param: string; dependsOn: number; onFail: number;
+      }[]>,
     ]);
     res.set('Cache-Control', 'no-store').json({
+      brand: deal.brand,
+      creator: deal.creator,
       accepted: deal.accepted,
-      certified,
       funded: deal.funded,
-      clauses: clauses.map(({ status }) => ({ status })),
+      total: formatUnits(deal.total, 6),
+      certified,
+      clauses: clauses.map(({ status, amount, deadline, checkType, param, dependsOn, onFail }) => ({
+        status, amount: formatUnits(amount, 6), deadline: deadline.toString(), checkType, param, dependsOn, onFail,
+      })),
     });
   } catch (error) {
     const message = escrowError(error);
@@ -308,7 +321,28 @@ app.get('/api/escrow/deals/:dealId', requireWallet, async (req, res) => {
   }
 });
 
-async function checkEscrowAction(res: Response, action: 'fundDeal' | 'release', args: (bigint | number)[]) {
+app.get('/api/escrow/proposals/:txHash', requireWallet, async (req, res) => {
+  const { txHash } = req.params;
+  if (typeof txHash !== 'string' || !/^0x[\da-f]{64}$/i.test(txHash)) return bad(res, 'Invalid transaction hash.');
+  try {
+    const receipt = await arc.getTransactionReceipt({ hash: txHash as Hex });
+    const events = parseEventLogs({ abi: escrowAbi, eventName: 'DealProposed', logs: receipt.logs.filter(
+      (log) => log.address.toLowerCase() === ESCROW_ADDRESS.toLowerCase(),
+    ) });
+    const brand = sessionOf(res).address.toLowerCase();
+    for (const event of events) {
+      const args = event.args as { dealId?: bigint; brand?: Address } | undefined;
+      if (args?.brand?.toLowerCase() === brand && args.dealId !== undefined) {
+        return res.json({ dealId: args.dealId.toString() });
+      }
+    }
+    res.status(404).json({ message: 'No deal proposal was found in this transaction.' });
+  } catch {
+    res.status(502).json({ message: 'Could not read the proposal receipt from Arc Testnet.' });
+  }
+});
+
+async function checkEscrowAction(res: Response, action: string, args: (bigint | number | string)[]) {
   if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
     res.status(503).json({ message: escrowUnavailable });
     return false;
@@ -325,12 +359,12 @@ async function checkEscrowAction(res: Response, action: 'fundDeal' | 'release', 
     const message = escrowError(error);
     res.status(422).json({ message: message ?? (action === 'fundDeal'
       ? 'Funding could not be simulated. Check the deal status, USDC balance, and approval.'
-      : 'Release could not be simulated. Check the clause status and dispute window.') });
+      : 'This action could not be simulated. Check the deal and clause status.') });
     return false;
   }
 }
 
-async function prepareTrackedEscrowAction(res: Response, signature: string, args: string[]) {
+async function prepareTrackedEscrowAction(res: Response, signature: string, args: unknown[]) {
   const { walletId, userToken } = sessionOf(res);
   const refId = crypto.randomUUID();
   try {
@@ -380,17 +414,15 @@ app.post('/api/escrow/propose', requireWallet, async (req, res) => {
   if (!isUnits(total)) return bad(res, 'total must be a positive integer (6-decimal units)');
   const parsed = parseClauses(clauses);
   if ('error' in parsed) return bad(res, parsed.error);
-  const { walletId, userToken } = sessionOf(res);
-  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    `proposeDeal(address,uint256,${CLAUSE_TUPLE}[])`, [creator, String(total), parsed.terms] as unknown as string[]));
+  await prepareTrackedEscrowAction(res, `proposeDeal(address,uint256,${CLAUSE_TUPLE}[])`,
+    [creator, String(total), parsed.terms]);
 });
 
 // 6b. Creator accepts the exact terms
 app.post('/api/escrow/accept', requireWallet, async (req, res) => {
-  if (!isId(req.body.dealId)) return bad(res, 'dealId must be a non-negative integer');
-  const { walletId, userToken } = sessionOf(res);
-  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'acceptDeal(uint256)', [String(req.body.dealId)]));
+  if (!isDealId(req.body.dealId)) return bad(res, 'Enter a valid deal ID.');
+  if (!await checkEscrowAction(res, 'acceptDeal', [BigInt(req.body.dealId)])) return;
+  await prepareTrackedEscrowAction(res, 'acceptDeal(uint256)', [String(req.body.dealId)]);
 });
 
 // 6c. Brand funds the deal (needs accepted + certified + approved USDC)
@@ -403,12 +435,11 @@ app.post('/api/escrow/fund', requireWallet, async (req, res) => {
 // 6d. Creator submits a video for a clause
 app.post('/api/escrow/submit', requireWallet, async (req, res) => {
   const { dealId, clauseId, videoId } = req.body;
-  if (!isId(dealId)) return bad(res, 'dealId must be a non-negative integer');
+  if (!isDealId(dealId)) return bad(res, 'Enter a valid deal ID.');
   if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
   if (typeof videoId !== 'string' || !videoId || videoId.length > 64) return bad(res, 'videoId must be a short string');
-  const { walletId, userToken } = sessionOf(res);
-  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'submitEvidence(uint256,uint8,string)', [String(dealId), String(clauseId), videoId]));
+  if (!await checkEscrowAction(res, 'submitEvidence', [BigInt(dealId), Number(clauseId), videoId])) return;
+  await prepareTrackedEscrowAction(res, 'submitEvidence(uint256,uint8,string)', [String(dealId), String(clauseId), videoId]);
 });
 
 // 7a. Anyone releases a verified clause to the creator (after the dispute window)
@@ -423,11 +454,10 @@ app.post('/api/escrow/release', requireWallet, async (req, res) => {
 // 7b. Anyone refunds a failed clause to the brand
 app.post('/api/escrow/refund', requireWallet, async (req, res) => {
   const { dealId, clauseId } = req.body;
-  if (!isId(dealId)) return bad(res, 'dealId must be a non-negative integer');
+  if (!isDealId(dealId)) return bad(res, 'Enter a valid deal ID.');
   if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
-  const { walletId, userToken } = sessionOf(res);
-  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'refund(uint256,uint8)', [String(dealId), String(clauseId)]));
+  if (!await checkEscrowAction(res, 'refund', [BigInt(dealId), Number(clauseId)])) return;
+  await prepareTrackedEscrowAction(res, 'refund(uint256,uint8)', [String(dealId), String(clauseId)]);
 });
 
 // 8. Recent transactions for the signed-in wallet (poll for state + txHash)

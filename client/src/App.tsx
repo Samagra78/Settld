@@ -245,7 +245,7 @@ function App() {
           {me.blockchain === 'ARC-TESTNET' && (login ? (
             <>
               <ApprovalPanel key={me.walletId} onApprove={approveUsdc} />
-              <DealActions key={`deal-${me.walletId}`} onAuthorize={authorizeDealAction} onConfirmed={() => {
+              <DealActions key={`deal-${me.walletId}`} walletAddress={me.address} onAuthorize={authorizeDealAction} onConfirmed={() => {
                 void loadBalance().catch(() => say('Transaction confirmed. Could not refresh the wallet balance.', true))
               }} />
             </>

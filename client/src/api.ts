@@ -77,10 +77,19 @@ export const getBalances = () => get<{ tokenBalances: TokenBalance[] }>('/balanc
 export const prepareApproval = (amount: string) =>
   post<{ challengeId: string }>('/escrow/approve', { amount })
 
-export type DealStatus = { accepted: boolean; certified: boolean; funded: boolean; clauses: { status: number }[] }
-export type DealAction = { kind: 'fund'; dealId: string } | { kind: 'release'; dealId: string; clauseId: number }
+export type DealStatus = {
+  brand: string; creator: string; total: string; accepted: boolean; certified: boolean; funded: boolean;
+  clauses: { status: number; amount: string; deadline: string; checkType: number; param: string; dependsOn: number; onFail: number }[]
+}
+type ClauseTerms = { kind: number; checkType: number; param: string; deadline: string; amount: string; dependsOn: number; onFail: number; vestDays: number }
+export type Proposal = { kind: 'propose'; creator: string; total: string; clauses: ClauseTerms[] }
+export type DealAction = Proposal
+  | { kind: 'fund' | 'accept'; dealId: string }
+  | { kind: 'release' | 'refund'; dealId: string; clauseId: number }
+  | { kind: 'submit'; dealId: string; clauseId: number; videoId: string }
 
 export const getDealStatus = (dealId: string) => get<DealStatus>(`/escrow/deals/${encodeURIComponent(dealId)}`)
+export const getProposedDeal = (hash: string) => get<{ dealId: string }>(`/escrow/proposals/${encodeURIComponent(hash)}`)
 
 export const prepareDealAction = ({ kind, ...args }: DealAction) =>
   post<{ challengeId: string; refId: string }>(`/escrow/${kind}`, args)
