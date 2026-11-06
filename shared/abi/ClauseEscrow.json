@@ -1,0 +1,1194 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "forwarder",
+        "type": "address"
+      },
+      {
+        "name": "usdc_",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "Disputed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Failed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_CLAUSES",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Pending",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "RELEASE_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Refunded",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Released",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SUBMITTED_TIMEOUT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Submitted",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "Verified",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acceptDeal",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "certified",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "clauseCount",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "dealCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "expire",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "fundDeal",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getClause",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          {
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "name": "vestDays",
+            "type": "uint32"
+          },
+          {
+            "name": "daysVested",
+            "type": "uint32"
+          },
+          {
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "name": "verifiedAt",
+            "type": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getClauses",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "name": "vestDays",
+            "type": "uint32"
+          },
+          {
+            "name": "daysVested",
+            "type": "uint32"
+          },
+          {
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "name": "verifiedAt",
+            "type": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getDeal",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          {
+            "name": "brand",
+            "type": "address"
+          },
+          {
+            "name": "creator",
+            "type": "address"
+          },
+          {
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "name": "total",
+            "type": "uint256"
+          },
+          {
+            "name": "specHash",
+            "type": "bytes32"
+          },
+          {
+            "name": "accepted",
+            "type": "bool"
+          },
+          {
+            "name": "funded",
+            "type": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getExpectedAuthor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getExpectedWorkflowId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getExpectedWorkflowName",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes10"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getForwarderAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "onReport",
+    "inputs": [
+      {
+        "name": "metadata",
+        "type": "bytes"
+      },
+      {
+        "name": "report",
+        "type": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposeDeal",
+    "inputs": [
+      {
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "name": "total",
+        "type": "uint256"
+      },
+      {
+        "name": "terms",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "name": "vestDays",
+            "type": "uint32"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "refund",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "release",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setExpectedAuthor",
+    "inputs": [
+      {
+        "name": "_author",
+        "type": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setExpectedWorkflowId",
+    "inputs": [
+      {
+        "name": "_id",
+        "type": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setExpectedWorkflowName",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setForwarderAddress",
+    "inputs": [
+      {
+        "name": "_forwarder",
+        "type": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "submitEvidence",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "name": "videoId",
+        "type": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "supportsInterface",
+    "inputs": [
+      {
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "ClauseFailed",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClauseSettled",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8",
+        "indexed": false
+      },
+      {
+        "name": "status",
+        "type": "uint8",
+        "indexed": false
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClauseSubmitted",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8",
+        "indexed": false
+      },
+      {
+        "name": "videoId",
+        "type": "string",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ClauseVerified",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DealAccepted",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DealCertified",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DealFunded",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "total",
+        "type": "uint256",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "DealProposed",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "name": "brand",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "name": "specHash",
+        "type": "bytes32",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ExpectedAuthorUpdated",
+    "inputs": [
+      {
+        "name": "previousAuthor",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "name": "newAuthor",
+        "type": "address",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ExpectedWorkflowIdUpdated",
+    "inputs": [
+      {
+        "name": "previousId",
+        "type": "bytes32",
+        "indexed": true
+      },
+      {
+        "name": "newId",
+        "type": "bytes32",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ExpectedWorkflowNameUpdated",
+    "inputs": [
+      {
+        "name": "previousName",
+        "type": "bytes10",
+        "indexed": true
+      },
+      {
+        "name": "newName",
+        "type": "bytes10",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ForwarderAddressUpdated",
+    "inputs": [
+      {
+        "name": "previousForwarder",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "name": "newForwarder",
+        "type": "address",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SecurityWarning",
+    "inputs": [
+      {
+        "name": "message",
+        "type": "string",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AlreadyAccepted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadyCertified",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadyFunded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DeadlinePassed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DependencyNotReleased",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAuthor",
+    "inputs": [
+      {
+        "name": "received",
+        "type": "address"
+      },
+      {
+        "name": "expected",
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidClauseCount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidClauseStatus",
+    "inputs": [
+      {
+        "name": "status",
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidCreator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidDependency",
+    "inputs": [
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "name": "dependency",
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidForwarderAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidReportKind",
+    "inputs": [
+      {
+        "name": "kind",
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidSender",
+    "inputs": [
+      {
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "name": "expected",
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidWorkflowId",
+    "inputs": [
+      {
+        "name": "received",
+        "type": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidWorkflowName",
+    "inputs": [
+      {
+        "name": "received",
+        "type": "bytes10"
+      },
+      {
+        "name": "expected",
+        "type": "bytes10"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotAccepted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotBrand",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotCertified",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotCreator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotExpired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotFunded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OwnableInvalidOwner",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableUnauthorizedAccount",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RefundNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ReleaseWindowActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SpecHashMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TotalMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnauthorizedReportForwarder",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnknownClause",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownDeal",
+    "inputs": [
+      {
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WorkflowNameRequiresAuthorValidation",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroClauseAmount",
+    "inputs": [
+      {
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroUSDC",
+    "inputs": []
+  }
+]

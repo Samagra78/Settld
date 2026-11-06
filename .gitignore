@@ -27,3 +27,6 @@ cre/**/node_modules/
 .idea/
 .DS_Store
 *.log
+contracts/artifacts/
+contracts/typechain-types/
+contracts/dist/
