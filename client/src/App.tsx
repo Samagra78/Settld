@@ -4,11 +4,14 @@ import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
 import {
   CircleError,
   addFunds,
+  createSession,
   getBalances,
+  getMe,
   initializeUser,
   listWallets,
+  logout,
   requestEmailOtp,
-  type Wallet,
+  type Me,
 } from './api'
 
 const appId = import.meta.env.VITE_CIRCLE_APP_ID as string
@@ -21,7 +24,7 @@ function App() {
   const [email, setEmail] = useState('')
   const [otpReady, setOtpReady] = useState(false)
   const [login, setLogin] = useState<Login | null>(null)
-  const [wallet, setWallet] = useState<Wallet | null>(null)
+  const [me, setMe] = useState<Me | null>(null) // signed-in identity: wallet address
   const [usdc, setUsdc] = useState<string | null>(null)
   const [status, setStatus] = useState('Loading SDK...')
   const [isError, setIsError] = useState(false)
@@ -54,30 +57,53 @@ function App() {
       .catch(() => say('Failed to get device id', true))
   }, [])
 
+  const loadBalance = async () => {
+    const { tokenBalances } = await getBalances()
+    const entry = tokenBalances.find((t) => t.token?.symbol?.startsWith('USDC'))
+    setUsdc(entry?.amount ?? '0')
+  }
+
+  // Already signed in (cookie session from an earlier login)? Show who we are.
+  useEffect(() => {
+    getMe()
+      .then(async (m) => {
+        setMe(m)
+        await loadBalance()
+        say('Signed in (session restored).')
+      })
+      .catch(() => {}) // 401 = not signed in, nothing to restore
+  }, [])
+
+  // Exchange the Circle login for a server session keyed to the wallet address.
   const loadWallet = async (userToken: string) => {
     const { wallets } = await listWallets(userToken)
     if (wallets.length === 0) {
       say('Wallet is still being created, click again in a few seconds.')
       return
     }
-    const w = wallets[0]
-    setWallet(w)
-    const { tokenBalances } = await getBalances(userToken, w.id)
-    const entry = tokenBalances.find((t) => t.token?.symbol?.startsWith('USDC'))
-    setUsdc(entry?.amount ?? '0')
-    say('Wallet loaded.')
+    setMe(await createSession(userToken))
+    await loadBalance()
+    say('Signed in.')
+  }
+
+  const signOut = async () => {
+    await logout().catch(() => {})
+    setMe(null)
+    setUsdc(null)
+    setLogin(null)
+    setOtpReady(false)
+    say('Signed out.')
   }
 
   // Mock card top-up: the server sends 10 test USDC from a treasury wallet.
   const [adding, setAdding] = useState(false)
   const topUp = async () => {
-    if (!login) return
     try {
       setAdding(true)
       say('Processing payment...')
-      const r = await addFunds(login.userToken)
+      const r = await addFunds()
       say(`Added ${r.amount} USDC (test funds). Updating balance...`)
-      await loadWallet(login.userToken)
+      await loadBalance()
       say(`Added ${r.amount} USDC (test funds).`)
     } catch (e) {
       say((e as Error).message, true)
@@ -157,26 +183,29 @@ function App() {
         <button onClick={verifyOtp} disabled={!otpReady || !!login}>
           2. Verify OTP
         </button>
-        <button onClick={createOrLoadWallet} disabled={!login || !!wallet}>
+        <button onClick={createOrLoadWallet} disabled={!login || !!me}>
           3. Create / load wallet
         </button>
       </div>
 
       <p style={{ color: isError ? 'red' : 'inherit' }}>{status}</p>
 
-      {wallet && (
+      {me && (
         <div>
           <p>
-            <strong>Address:</strong> <code>{wallet.address}</code>
+            <strong>Signed in as:</strong> <code>{me.address}</code>
           </p>
           <p>
-            <strong>Chain:</strong> {wallet.blockchain}
+            <strong>Chain:</strong> {me.blockchain}
           </p>
           <p>
             <strong>USDC:</strong> {usdc}
           </p>
           <button onClick={topUp} disabled={adding}>
             {adding ? 'Adding...' : 'Add $10 (test funds)'}
+          </button>
+          <button onClick={signOut} style={{ marginLeft: 8 }}>
+            Sign out
           </button>
           <p style={{ fontSize: 12, opacity: 0.7 }}>
             Mock payment: nothing is charged. Testnet USDC is sent to your wallet.
