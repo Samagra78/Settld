@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Circle PIN Test</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0f1012; --card:#191b1f; --line:#2a2d33; --text:#e8e8ea; --muted:#9a9ca3; --ok:#3ecf8e; --bad:#ff6b6b; --accent:#5b8cff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
+    main { max-width:820px; margin:0 auto; padding:20px 16px 60px; }
+    h1 { font-size:20px; margin:0 0 4px; } p.muted, .muted { color:var(--muted); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin:12px 0; }
+    .card h2 { font-size:15px; margin:0 0 8px; display:flex; gap:8px; align-items:center; }
+    .n { display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#2a3a66; font-size:12px; }
+    input, select { background:#22252b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font:inherit; min-width:0; }
+    button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+    button.ghost { background:#2a2d33; }
+    button:disabled { opacity:.5; cursor:default; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+    .row input { flex:1 1 180px; }
+    pre { white-space:pre-wrap; word-break:break-word; font:12px ui-monospace, monospace; margin:0; }
+    .ok { color:var(--ok); } .bad { color:var(--bad); }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Circle PIN test</h1>
+  <p class="muted">Developer page: runs Settld's real backend routes that need your Circle PIN — you play the <b>client</b>, a test wallet plays the freelancer.
+    Watch the whole story at <a href="/monitor" target="_blank">/monitor</a>.</p>
+
+  <section class="card">
+    <h2><span class="n">1</span>Sign in with Circle</h2>
+    <div id="who" class="muted">Not signed in.</div>
+    <div class="row" id="loginRow">
+      <input id="email" type="email" placeholder="your email" autocomplete="email" />
+      <button id="sendOtp">Send code</button>
+      <button id="verifyOtp" class="ghost" disabled>Enter code</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">2</span>Create a test deal (you = client) <span class="muted">· PIN</span></h2>
+    <p class="muted">One clause: "a public link is live", 0.2 USDC, 3-day deadline. The test freelancer is the other party.</p>
+    <div class="row"><button data-step="propose">Propose deal</button><span>Deal #<input id="deal" size="5" style="width:80px" /></span></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">3</span>Freelancer accepts → Chainlink certifies</h2>
+    <div class="row"><button data-step="accept" class="ghost">Test freelancer accepts</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">4</span>Fund the deal <span class="muted">· 2 PINs</span></h2>
+    <div class="row"><button data-step="approve">Approve 0.2 USDC</button><button data-step="fund">Fund deal</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">5</span>Freelancer submits → Chainlink verifies</h2>
+    <div class="row"><button data-step="submit" class="ghost">Test freelancer submits https://example.com</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">6</span>Question the result (dispute) <span class="muted">· PIN, within 120 s of the verdict</span></h2>
+    <div class="row"><input id="reason" value="The page is a placeholder: no logo and no signup form." /><button data-step="dispute">Dispute</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">7</span>AI court → appeal to human arbitrators <span class="muted">· 2 PINs, within 120 s of the AI verdict</span></h2>
+    <div class="row">Case #<input id="case" size="5" style="width:80px" /><button data-step="status" class="ghost">Court status</button>
+      <button data-step="approveFee">Approve 10% fee</button><button data-step="appeal">Appeal</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="n">8</span>Arbitrator side</h2>
+    <p class="muted">You can't judge your own deal. To vote, sign in here with a different email, verify on <a href="/worldid-test" target="_blank">/worldid-test</a>, then register.</p>
+    <div class="row"><input id="nullifier" placeholder="nullifier (from /worldid-test)" /><input id="signature" placeholder="signature" />
+      <button data-step="register">Register as arbitrator</button></div>
+    <div class="row"><button data-step="me" class="ghost">Am I an arbitrator?</button><button data-step="cases" class="ghost">Open cases</button><button data-step="dashboard" class="ghost">My dashboard</button></div>
+    <div class="row">Band <select id="band"><option>0</option><option>50</option><option>80</option><option selected>100</option></select>
+      <button data-step="commit">Commit hidden vote</button><button data-step="reveal">Reveal</button></div>
+  </section>
+
+  <section class="card"><h2>Log</h2><pre id="log"></pre></section>
+</main>
+
+<script type="module">
+  import sdkModule from "/circle-test/sdk.js";
+  const { W3SSdk } = sdkModule;
+  const $ = (id) => document.getElementById(id);
+  const log = (m, cls) => { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = `[${new Date().toLocaleTimeString()}] ${m}`; $("log").prepend(d); };
+  const api = async (method, path, body) => {
+    const r = await fetch("/api" + path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || j.error || `HTTP ${r.status}`);
+    return j;
+  };
+
+  const cfg = await api("GET", "/dev/circle-config");
+  let login = null, deviceId = "";
+  const sdk = new W3SSdk({ appSettings: { appId: cfg.appId } }, async (error, result) => {
+    if (error || !result) return log("Code check failed: " + (error?.message ?? "unknown"), "bad");
+    login = { userToken: result.userToken, encryptionKey: result.encryptionKey };
+    try {
+      const me = await api("POST", "/session", { userToken: login.userToken });
+      $("who").innerHTML = `Signed in: <b>${me.address}</b>`;
+      log("Signed in as " + me.address, "ok");
+    } catch (e) { log("Session failed (does this email have a wallet? create it on the Settld site first): " + e.message, "bad"); }
+  });
+  deviceId = await sdk.getDeviceId();
+
+  $("sendOtp").onclick = async () => {
+    try {
+      const s = await api("POST", "/auth/email", { deviceId, email: $("email").value.trim() });
+      sdk.updateConfigs({ appSettings: { appId: cfg.appId }, loginConfigs: { deviceToken: s.deviceToken, deviceEncryptionKey: s.deviceEncryptionKey, otpToken: s.otpToken, email: { email: $("email").value.trim() } } });
+      $("verifyOtp").disabled = false;
+      log("Code sent — check your inbox, then click 'Enter code'.");
+    } catch (e) { log(e.message, "bad"); }
+  };
+  $("verifyOtp").onclick = () => sdk.verifyOtp();
+
+  /** Circle's PIN window for one transaction challenge. */
+  const pin = (challengeId) => new Promise((resolve, reject) => {
+    if (!login) return reject(new Error("Sign in first."));
+    sdk.setAuthentication(login);
+    sdk.execute(challengeId, (error, result) => error ? reject(new Error(error.message || "PIN step failed")) : resolve(result));
+  });
+  const withPin = async (label, path, body) => {
+    const { challengeId } = await api("POST", path, body);
+    log(`${label}: enter your PIN in Circle's window…`);
+    const r = await pin(challengeId);
+    log(`${label}: ${r?.status ?? "done"} ✓ (it lands on Arc in a few seconds)`, "ok");
+  };
+  const deal = () => { const v = $("deal").value.trim(); if (!/^\d+$/.test(v)) throw new Error("Enter the deal number first."); return v; };
+  const kase = () => { const v = $("case").value.trim(); if (!/^\d+$/.test(v)) throw new Error("Enter the case number first."); return v; };
+  const show = (label, obj) => log(`${label}: ${JSON.stringify(obj, null, 1)}`);
+
+  const steps = {
+    propose: async () => {
+      const deadline = Math.floor(Date.now() / 1000) + 3 * 86400;
+      await withPin("Propose deal", "/escrow/propose", { creator: cfg.freelancer, total: "200000",
+        clauses: [{ kind: 0, checkType: 4, param: "", deadline, amount: "200000", dependsOn: 255, onFail: 0, vestDays: 0 }] });
+      log("Finding your new deal number…");
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const m = await api("GET", "/monitor");
+        const me = (await api("GET", "/me")).address.toLowerCase();
+        const d = m.deals.find((x) => x.client === me);
+        if (d && String(d.deal_id) !== $("deal").value) { $("deal").value = d.deal_id; log(`Your deal is #${d.deal_id}`, "ok"); return; }
+      }
+      log("Couldn't see the deal yet — check /monitor and type its number.", "bad");
+    },
+    accept: async () => { const r = await api("POST", "/dev/test-freelancer", { dealId: deal(), action: "accept" }); log("Freelancer accepted ✓ " + r.txHash + " — Chainlink certifies in ~30–60 s (see /monitor).", "ok"); },
+    approve: () => withPin("Approve USDC", "/escrow/approve", { amount: "200000" }),
+    fund: () => withPin("Fund deal", "/escrow/fund", { dealId: deal() }),
+    submit: async () => { const r = await api("POST", "/dev/test-freelancer", { dealId: deal(), action: "submit", evidence: "https://example.com" }); log("Freelancer submitted ✓ " + r.txHash + " — Chainlink verifies in ~30 s; then you have 120 s to dispute.", "ok"); },
+    dispute: async () => {
+      await withPin("Dispute", "/escrow/dispute", { dealId: deal(), clauseId: 0, reason: $("reason").value.trim() });
+      log("The AI court opens — its case number appears on /monitor in a few seconds.");
+    },
+    status: async () => show("Court status", await api("GET", `/court/${kase()}/status`)),
+    approveFee: () => withPin("Approve appeal fee", `/court/${kase()}/approve-fee`),
+    appeal: () => withPin("Appeal", `/court/${kase()}/appeal`),
+    register: () => withPin("Register as arbitrator", "/jury/register", { nullifier: $("nullifier").value.trim(), signature: $("signature").value.trim() }),
+    me: async () => show("Me", await api("GET", "/arbitrator/me")),
+    cases: async () => show("Open cases", await api("GET", "/arbitrator/cases")),
+    dashboard: async () => show("Dashboard", await api("GET", "/arbitrator/dashboard")),
+    commit: () => withPin("Commit vote", "/arbitrator/commit", { caseId: kase(), band: Number($("band").value) }),
+    reveal: () => withPin("Reveal vote", "/arbitrator/reveal", { caseId: kase() }),
+  };
+  document.querySelectorAll("[data-step]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { await steps[b.dataset.step](); } catch (e) { log(e.message, "bad"); } finally { b.disabled = false; }
+  });
+  log(cfg.appId ? "Ready. Start with step 1." : "Circle app id missing on the server.", cfg.appId ? "" : "bad");
+</script>
+</body>
+</html>

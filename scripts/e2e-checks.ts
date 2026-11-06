@@ -3,7 +3,9 @@
 //   C1  GitHub PR merged     (6)  https://github.com/vitejs/vite/pull/100 merged into vitejs/vite
 //   C2  AI check (3 models)  (7)  https://example.com judged against written criteria
 // Only people's actions are scripted (propose, accept, fund, submit). Certify, verify and payout are automatic.
-// Usage (from scripts/, server running with AUTOMATION_ENABLED=true):  bun run e2e-checks
+// Usage (from scripts/, server running with AUTOMATION_ENABLED=true):
+//   bun run e2e-checks              → page text, GitHub merged, AI check
+//   bun run e2e-checks --youtube    → YouTube posted, description contains (pass), description contains (expected fail)
 
 import { readFileSync } from "node:fs";
 import {
@@ -46,7 +48,12 @@ const waitFor = async <T>(what: string, check: () => Promise<T | undefined>, s: 
 
 const EACH = parseUnits("0.1", 6);
 const deadline = BigInt(Math.floor(Date.now() / 1000) + 3 * 86400);
-const cases = [
+const YOUTUBE = process.argv.includes("--youtube");
+const cases = YOUTUBE ? [
+  { checkType: 0, param: "", evidence: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", label: "YouTube posted before the deadline" },
+  { checkType: 1, param: "Autobiography", evidence: "https://youtu.be/dQw4w9WgXcQ", label: "YouTube description contains \"Autobiography\" (not in the title)" },
+  { checkType: 1, param: "#TravelCoPartner", evidence: "dQw4w9WgXcQ", label: "YouTube description contains a missing hashtag (should FAIL)" },
+] : [
   { checkType: 5, param: "documentation examples", evidence: "https://example.com", label: "page contains text" },
   { checkType: 6, param: "vitejs/vite", evidence: "https://github.com/vitejs/vite/pull/100", label: "GitHub PR merged" },
   { checkType: 7, param: "A simple placeholder web page that says the domain is meant for use in documentation examples", evidence: "https://example.com", label: "AI check (3 models)" },
