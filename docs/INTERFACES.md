@@ -9,13 +9,13 @@
 | Network | Arc testnet |
 | Chain ID | `5042002` |
 | RPC | `https://rpc.testnet.arc.network` |
-| Explorer | `https://testnet.arcscan.app` |
+| Explorer | `https://explorer.testnet.arc.io` (`testnet.arcscan.app` redirects here) |
 | CRE chain name | `arc-testnet` |
 | USDC (ERC-20) | `0x3600000000000000000000000000000000000000`, **6 decimals**. Never use `msg.value`. |
 | CRE forwarder (simulation / mock) | `0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1` |
 | CRE forwarder (production) | `0x76c9cf548b4179F8901cda1f8623568b58215E62` |
 | Tester wallet (manual oracle; swap in with `setForwarder`) | `0xB78dCAD9C827d95d07Dcae6C0498FBdd780B223d` |
-| Contract addresses | _filled in by P2 after each deploy_ |
+| ClauseEscrow (built + deployed in Arc Studio) | `0xb95014696c71fb6d3269c5d09713075185191ea8`, forwarder = mock forwarder, owner = Studio's deployer wallet (cannot call `setForwarderAddress`). More in `shared/addresses.json` |
 
 ## Enums
 ```
@@ -62,7 +62,7 @@ struct Deal {
 ```solidity
 event DealProposed(uint256 indexed dealId, address indexed brand, address indexed creator, bytes32 specHash);
 event DealAccepted(uint256 indexed dealId);
-event DealCertified(uint256 indexed dealId, bytes32 specHash);
+event DealCertified(uint256 indexed dealId);   // DEPLOYED version has no specHash arg
 event DealFunded(uint256 indexed dealId, uint256 total);
 event ClauseSubmitted(uint256 indexed dealId, uint8 clauseId, string videoId);
 event ClauseVerified(uint256 indexed dealId, uint8 clauseId);
@@ -72,7 +72,7 @@ event ClauseSettled(uint256 indexed dealId, uint8 clauseId, uint8 outcome, uint2
 ```
 
 ## ClauseEscrow functions (contracts/src/ClauseEscrow.sol)
-Constructor `ClauseEscrow(forwarder, usdc)`. Deal ids start at 1. ABI: `shared/abi/ClauseEscrow.json`. Details: `contracts/README.md`.
+Constructor `ClauseEscrow(forwarder, usdc)`. **Deployed (Studio) differences:** token getter is `usdc()`; forwarder functions use Chainlink names `getForwarderAddress` / `setForwarderAddress`; `dependsOn` must point to a strictly earlier clause; `DealCertified` has no `specHash`. Deal ids start at 1. ABI: `shared/abi/ClauseEscrow.json`. Details: `contracts/README.md`.
 ```solidity
 struct ClauseTerms { uint8 kind; uint8 checkType; string param; uint64 deadline; uint256 amount; uint8 dependsOn; uint8 onFail; uint32 vestDays; }
 
