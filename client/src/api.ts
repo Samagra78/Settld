@@ -55,8 +55,13 @@ export const listWallets = (userToken: string) =>
 export const getBalances = (userToken: string, walletId: string) =>
   post<{ tokenBalances: TokenBalance[] }>('/balance', { userToken, walletId })
 
-export const prepareApproval = (userToken: string, walletId: string, amount: string) =>
-  post<{ challengeId: string }>('/escrow/approve', { userToken, walletId, amount })
+export type EscrowAction =
+  | { kind: 'approve'; amount: string }
+  | { kind: 'fund'; creator: string; amount: string }
+  | { kind: 'release'; id: string }
+
+export const prepareEscrowAction = (userToken: string, walletId: string, { kind, ...args }: EscrowAction) =>
+  post<{ challengeId: string }>(`/escrow/${kind}`, { userToken, walletId, ...args })
 
 // Mock top-up (testnet): the server sends 10 test USDC to the user's own wallet.
 export const addFunds = (userToken: string) =>

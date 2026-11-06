@@ -132,7 +132,7 @@ app.post('/api/balance', async (req, res) => {
 // The browser SDK then runs the challenge, where the user enters their PIN.
 
 const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'; // 6 decimals
-const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS!;
+const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.escrow;
 
 // Fixed contract + function per route (no generic "call anything" endpoint),
 // so this server can only ever prepare approve / fund / release.

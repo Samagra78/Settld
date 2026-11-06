@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { W3SSdk } from '@circle-fin/w3s-pw-web-sdk'
 import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
-import ApprovalPanel from './ApprovalPanel'
+import EscrowPanel from './EscrowPanel'
 import PingStatus from './PingStatus'
 import {
   CircleError,
@@ -9,8 +9,9 @@ import {
   getBalances,
   initializeUser,
   listWallets,
-  prepareApproval,
+  prepareEscrowAction,
   requestEmailOtp,
+  type EscrowAction,
   type Wallet,
 } from './api'
 
@@ -115,17 +116,17 @@ function App() {
   // Step 2: Circle's hosted window collects the OTP.
   const verifyOtp = () => sdkRef.current?.verifyOtp()
 
-  const approveUsdc = async (amount: string) => {
+  const runEscrowAction = async (action: EscrowAction) => {
     const sdk = sdkRef.current
-    if (!sdk || !login || !wallet) throw new Error('Load your wallet before approving USDC.')
+    if (!sdk || !login || !wallet) throw new Error('Load your wallet before using escrow.')
 
-    const { challengeId } = await prepareApproval(login.userToken, wallet.id, amount)
+    const { challengeId } = await prepareEscrowAction(login.userToken, wallet.id, action)
     sdk.setAuthentication(login)
     await new Promise<void>((resolve, reject) => {
       sdk.execute(challengeId, (error, result) => {
-        if (error) reject(new Error(error.message || 'Approval challenge failed.'))
+        if (error) reject(new Error(error.message || 'Circle could not authorize the transaction.'))
         else if (result?.status === 'COMPLETE') resolve()
-        else reject(new Error('Circle did not complete the approval challenge.'))
+        else reject(new Error('Circle did not complete the transaction authorization.'))
       })
     })
   }
@@ -202,7 +203,7 @@ function App() {
         </div>
       )}
 
-      {login && wallet && <ApprovalPanel key={wallet.id} onApprove={approveUsdc} />}
+      {login && wallet && <EscrowPanel key={wallet.id} onAction={runEscrowAction} />}
       <PingStatus />
     </main>
   )
