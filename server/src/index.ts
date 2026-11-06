@@ -549,6 +549,11 @@ app.post('/api/escrow/propose', requireWallet, async (req, res) => {
   if (String(creator).toLowerCase() === sessionOf(res).address.toLowerCase()) {
     return bad(res, 'The freelancer must be a different wallet from yours.');
   }
+  // placeholders (0x…01, 0x…dead, 0x1111…) pass isAddress and the contract, but nobody can ever accept them
+  const hex = String(creator).slice(2).toLowerCase();
+  if ((hex.match(/0/g)?.length ?? 0) >= 30 || new Set(hex).size <= 2 || /dead$/.test(hex)) {
+    return bad(res, 'That looks like a placeholder address, not a real wallet. Use the freelancer’s own wallet address.');
+  }
   // dry-run first, so a deal the contract would reject fails here with the reason, not after the PIN
   const termsForSim = parsed.terms.map((t) => ({
     kind: Number(t[0]), checkType: Number(t[1]), param: String(t[2]), deadline: BigInt(t[3]),
