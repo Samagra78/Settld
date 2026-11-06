@@ -7,7 +7,8 @@
     "create-deal": "bun run create-deal.ts",
     "fund-and-submit": "bun run fund-and-submit.ts",
     "settle": "bun run settle.ts",
-    "use-addresses": "bun use-addresses.ts"
+    "use-addresses": "bun use-addresses.ts",
+    "e2e-dispute": "bun e2e-dispute.ts"
   },
   "dependencies": {
     "viem": "^2.57.16"

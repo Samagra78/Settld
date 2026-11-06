@@ -1,1194 +1,1726 @@
 [
   {
-    "type": "constructor",
     "inputs": [
       {
+        "internalType": "address",
         "name": "forwarder",
         "type": "address"
       },
       {
+        "internalType": "address",
         "name": "usdc_",
         "type": "address"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "Disputed",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Failed",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "MAX_CLAUSES",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Pending",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "RELEASE_WINDOW",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Refunded",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Released",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "SUBMITTED_TIMEOUT",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Submitted",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "Verified",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint8"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "acceptDeal",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "certified",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "clauseCount",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "dealCount",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "expire",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
       },
       {
-        "name": "clauseId",
-        "type": "uint8"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "fundDeal",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "getClause",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple",
-        "components": [
-          {
-            "name": "kind",
-            "type": "uint8"
-          },
-          {
-            "name": "checkType",
-            "type": "uint8"
-          },
-          {
-            "name": "param",
-            "type": "string"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64"
-          },
-          {
-            "name": "amount",
-            "type": "uint256"
-          },
-          {
-            "name": "dependsOn",
-            "type": "uint8"
-          },
-          {
-            "name": "onFail",
-            "type": "uint8"
-          },
-          {
-            "name": "vestDays",
-            "type": "uint32"
-          },
-          {
-            "name": "daysVested",
-            "type": "uint32"
-          },
-          {
-            "name": "status",
-            "type": "uint8"
-          },
-          {
-            "name": "verifiedAt",
-            "type": "uint64"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getClauses",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple[]",
-        "components": [
-          {
-            "name": "kind",
-            "type": "uint8"
-          },
-          {
-            "name": "checkType",
-            "type": "uint8"
-          },
-          {
-            "name": "param",
-            "type": "string"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64"
-          },
-          {
-            "name": "amount",
-            "type": "uint256"
-          },
-          {
-            "name": "dependsOn",
-            "type": "uint8"
-          },
-          {
-            "name": "onFail",
-            "type": "uint8"
-          },
-          {
-            "name": "vestDays",
-            "type": "uint32"
-          },
-          {
-            "name": "daysVested",
-            "type": "uint32"
-          },
-          {
-            "name": "status",
-            "type": "uint8"
-          },
-          {
-            "name": "verifiedAt",
-            "type": "uint64"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getDeal",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple",
-        "components": [
-          {
-            "name": "brand",
-            "type": "address"
-          },
-          {
-            "name": "creator",
-            "type": "address"
-          },
-          {
-            "name": "token",
-            "type": "address"
-          },
-          {
-            "name": "total",
-            "type": "uint256"
-          },
-          {
-            "name": "specHash",
-            "type": "bytes32"
-          },
-          {
-            "name": "accepted",
-            "type": "bool"
-          },
-          {
-            "name": "funded",
-            "type": "bool"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getExpectedAuthor",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
+        "internalType": "address",
+        "name": "owner_",
         "type": "address"
       }
     ],
-    "stateMutability": "view"
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
   {
-    "type": "function",
-    "name": "getExpectedWorkflowId",
     "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getExpectedWorkflowName",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes10"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getForwarderAddress",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "onReport",
-    "inputs": [
-      {
-        "name": "metadata",
-        "type": "bytes"
-      },
-      {
-        "name": "report",
-        "type": "bytes"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "owner",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "proposeDeal",
-    "inputs": [
-      {
-        "name": "creator",
-        "type": "address"
-      },
-      {
-        "name": "total",
-        "type": "uint256"
-      },
-      {
-        "name": "terms",
-        "type": "tuple[]",
-        "components": [
-          {
-            "name": "kind",
-            "type": "uint8"
-          },
-          {
-            "name": "checkType",
-            "type": "uint8"
-          },
-          {
-            "name": "param",
-            "type": "string"
-          },
-          {
-            "name": "deadline",
-            "type": "uint64"
-          },
-          {
-            "name": "amount",
-            "type": "uint256"
-          },
-          {
-            "name": "dependsOn",
-            "type": "uint8"
-          },
-          {
-            "name": "onFail",
-            "type": "uint8"
-          },
-          {
-            "name": "vestDays",
-            "type": "uint32"
-          }
-        ]
-      }
-    ],
-    "outputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "refund",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "release",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "renounceOwnership",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setExpectedAuthor",
-    "inputs": [
-      {
-        "name": "_author",
-        "type": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setExpectedWorkflowId",
-    "inputs": [
-      {
-        "name": "_id",
-        "type": "bytes32"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setExpectedWorkflowName",
-    "inputs": [
-      {
-        "name": "_name",
-        "type": "string"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setForwarderAddress",
-    "inputs": [
-      {
-        "name": "_forwarder",
-        "type": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "submitEvidence",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256"
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8"
-      },
-      {
-        "name": "videoId",
-        "type": "string"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "supportsInterface",
-    "inputs": [
-      {
-        "name": "interfaceId",
-        "type": "bytes4"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
-    "name": "transferOwnership",
-    "inputs": [
-      {
-        "name": "newOwner",
-        "type": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "usdc",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "event",
-    "name": "ClauseFailed",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ClauseSettled",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8",
-        "indexed": false
-      },
-      {
-        "name": "status",
-        "type": "uint8",
-        "indexed": false
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ClauseSubmitted",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8",
-        "indexed": false
-      },
-      {
-        "name": "videoId",
-        "type": "string",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ClauseVerified",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "clauseId",
-        "type": "uint8",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "DealAccepted",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "DealCertified",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "DealFunded",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "total",
-        "type": "uint256",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "DealProposed",
-    "inputs": [
-      {
-        "name": "dealId",
-        "type": "uint256",
-        "indexed": true
-      },
-      {
-        "name": "brand",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "creator",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "specHash",
-        "type": "bytes32",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ExpectedAuthorUpdated",
-    "inputs": [
-      {
-        "name": "previousAuthor",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "newAuthor",
-        "type": "address",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ExpectedWorkflowIdUpdated",
-    "inputs": [
-      {
-        "name": "previousId",
-        "type": "bytes32",
-        "indexed": true
-      },
-      {
-        "name": "newId",
-        "type": "bytes32",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ExpectedWorkflowNameUpdated",
-    "inputs": [
-      {
-        "name": "previousName",
-        "type": "bytes10",
-        "indexed": true
-      },
-      {
-        "name": "newName",
-        "type": "bytes10",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ForwarderAddressUpdated",
-    "inputs": [
-      {
-        "name": "previousForwarder",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "newForwarder",
-        "type": "address",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "OwnershipTransferred",
-    "inputs": [
-      {
-        "name": "previousOwner",
-        "type": "address",
-        "indexed": true
-      },
-      {
-        "name": "newOwner",
-        "type": "address",
-        "indexed": true
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "SecurityWarning",
-    "inputs": [
-      {
-        "name": "message",
-        "type": "string",
-        "indexed": false
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "error",
     "name": "AlreadyAccepted",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "AlreadyCertified",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "AlreadyFunded",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
+    "name": "CaseAlreadyFinal",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CaseNotResolved",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CourtAlreadySet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CourtNotContract",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "CourtNotSet",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "DeadlinePassed",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "DependencyNotReleased",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "InvalidAuthor",
+    "inputs": [],
+    "name": "DependencyNotSettled",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DisputeWindowClosed",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "EscapeNotReached",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InsufficientGas",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
+        "internalType": "address",
         "name": "received",
         "type": "address"
       },
       {
+        "internalType": "address",
         "name": "expected",
         "type": "address"
       }
-    ]
+    ],
+    "name": "InvalidAuthor",
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "InvalidClauseCount",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidClauseStatus",
     "inputs": [
       {
+        "internalType": "uint8",
+        "name": "band",
+        "type": "uint8"
+      }
+    ],
+    "name": "InvalidBand",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidCaseId",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidClauseCount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
         "name": "status",
         "type": "uint8"
       }
-    ]
+    ],
+    "name": "InvalidClauseStatus",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "InvalidCreator",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "InvalidDependency",
     "inputs": [
       {
+        "internalType": "uint8",
         "name": "clauseId",
         "type": "uint8"
       },
       {
+        "internalType": "uint8",
         "name": "dependency",
         "type": "uint8"
       }
-    ]
+    ],
+    "name": "InvalidDependency",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "InvalidForwarderAddress",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "InvalidReportKind",
     "inputs": [
       {
+        "internalType": "uint8",
         "name": "kind",
         "type": "uint8"
       }
-    ]
+    ],
+    "name": "InvalidReportKind",
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "InvalidSender",
     "inputs": [
       {
+        "internalType": "address",
         "name": "sender",
         "type": "address"
       },
       {
+        "internalType": "address",
         "name": "expected",
         "type": "address"
       }
-    ]
+    ],
+    "name": "InvalidSender",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "received",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "expected",
+        "type": "bytes32"
+      }
+    ],
     "name": "InvalidWorkflowId",
-    "inputs": [
-      {
-        "name": "received",
-        "type": "bytes32"
-      },
-      {
-        "name": "expected",
-        "type": "bytes32"
-      }
-    ]
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [
+      {
+        "internalType": "bytes10",
+        "name": "received",
+        "type": "bytes10"
+      },
+      {
+        "internalType": "bytes10",
+        "name": "expected",
+        "type": "bytes10"
+      }
+    ],
     "name": "InvalidWorkflowName",
-    "inputs": [
-      {
-        "name": "received",
-        "type": "bytes10"
-      },
-      {
-        "name": "expected",
-        "type": "bytes10"
-      }
-    ]
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotAccepted",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotBrand",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotCertified",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotCreator",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotExpired",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "NotFunded",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "OwnableInvalidOwner",
+    "inputs": [],
+    "name": "NotParty",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
+        "internalType": "address",
         "name": "owner",
         "type": "address"
       }
-    ]
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "OwnableUnauthorizedAccount",
     "inputs": [
       {
+        "internalType": "address",
         "name": "account",
         "type": "address"
       }
-    ]
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
+    "name": "ReasonTooLong",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "ReentrancyGuardReentrantCall",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "RefundNotAllowed",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "ReleaseWindowActive",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "SafeERC20FailedOperation",
     "inputs": [
       {
+        "internalType": "address",
         "name": "token",
         "type": "address"
       }
-    ]
+    ],
+    "name": "SafeERC20FailedOperation",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "SpecHashMismatch",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "TotalMismatch",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
     "name": "UnauthorizedReportForwarder",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "UnknownClause",
     "inputs": [
       {
+        "internalType": "uint256",
         "name": "dealId",
         "type": "uint256"
       },
       {
+        "internalType": "uint8",
         "name": "clauseId",
         "type": "uint8"
       }
-    ]
+    ],
+    "name": "UnknownClause",
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "UnknownDeal",
     "inputs": [
       {
+        "internalType": "uint256",
         "name": "dealId",
         "type": "uint256"
       }
-    ]
+    ],
+    "name": "UnknownDeal",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
+    "name": "WindowOpen",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "WorkflowNameRequiresAuthorValidation",
-    "inputs": []
+    "type": "error"
   },
   {
-    "type": "error",
-    "name": "ZeroClauseAmount",
     "inputs": [
       {
+        "internalType": "uint8",
         "name": "clauseId",
         "type": "uint8"
       }
-    ]
+    ],
+    "name": "ZeroClauseAmount",
+    "type": "error"
   },
   {
-    "type": "error",
+    "inputs": [],
+    "name": "ZeroCourt",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "ZeroUSDC",
-    "inputs": []
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "caseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "disputer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
+    "name": "ClauseDisputed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "ClauseFailed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "creatorBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "creatorAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "brandAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClauseResolved",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "status",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClauseSettled",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "toFreelancer",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "toClient",
+        "type": "uint256"
+      }
+    ],
+    "name": "ClauseSplit",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "videoId",
+        "type": "string"
+      }
+    ],
+    "name": "ClauseSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "ClauseVerified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "court",
+        "type": "address"
+      }
+    ],
+    "name": "CourtSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "DealAccepted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "DealCertified",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      }
+    ],
+    "name": "DealFunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "brand",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "specHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "DealProposed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousAuthor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newAuthor",
+        "type": "address"
+      }
+    ],
+    "name": "ExpectedAuthorUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ExpectedWorkflowIdUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes10",
+        "name": "previousName",
+        "type": "bytes10"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes10",
+        "name": "newName",
+        "type": "bytes10"
+      }
+    ],
+    "name": "ExpectedWorkflowNameUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousForwarder",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newForwarder",
+        "type": "address"
+      }
+    ],
+    "name": "ForwarderAddressUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "message",
+        "type": "string"
+      }
+    ],
+    "name": "SecurityWarning",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "DISPUTE_ESCAPE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Disputed",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Failed",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_CLAUSES",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_VERDICT_GAS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Pending",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "RELEASE_WINDOW",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Refunded",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Released",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SUBMITTED_TIMEOUT",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Submitted",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "Verified",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "acceptDeal",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "caseOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "certified",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "clauseCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "court",
+    "outputs": [
+      {
+        "internalType": "contract IAICourt",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "dealCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
+    "name": "dispute",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "disputeWindowEnd",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "evidenceOf",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "expire",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "fundDeal",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "getClause",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "internalType": "uint64",
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint32",
+            "name": "vestDays",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "daysVested",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint8",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "verifiedAt",
+            "type": "uint64"
+          }
+        ],
+        "internalType": "struct ClauseEscrow.Clause",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getClauses",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "internalType": "uint64",
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint32",
+            "name": "vestDays",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "daysVested",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint8",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint64",
+            "name": "verifiedAt",
+            "type": "uint64"
+          }
+        ],
+        "internalType": "struct ClauseEscrow.Clause[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getDeal",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "brand",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "creator",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "total",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "specHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "accepted",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "funded",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct ClauseEscrow.Deal",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getExpectedAuthor",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getExpectedWorkflowId",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getExpectedWorkflowName",
+    "outputs": [
+      {
+        "internalType": "bytes10",
+        "name": "",
+        "type": "bytes10"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getForwarderAddress",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "metadata",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "report",
+        "type": "bytes"
+      }
+    ],
+    "name": "onReport",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "checkType",
+            "type": "uint8"
+          },
+          {
+            "internalType": "string",
+            "name": "param",
+            "type": "string"
+          },
+          {
+            "internalType": "uint64",
+            "name": "deadline",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "dependsOn",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "onFail",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint32",
+            "name": "vestDays",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct ClauseEscrow.ClauseTerms[]",
+        "name": "terms",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "proposeDeal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "refund",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "release",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "resolveDispute",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      }
+    ],
+    "name": "resolveStuckDispute",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "court_",
+        "type": "address"
+      }
+    ],
+    "name": "setCourt",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_author",
+        "type": "address"
+      }
+    ],
+    "name": "setExpectedAuthor",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_id",
+        "type": "bytes32"
+      }
+    ],
+    "name": "setExpectedWorkflowId",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_name",
+        "type": "string"
+      }
+    ],
+    "name": "setExpectedWorkflowName",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_forwarder",
+        "type": "address"
+      }
+    ],
+    "name": "setForwarderAddress",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "dealId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "clauseId",
+        "type": "uint8"
+      },
+      {
+        "internalType": "string",
+        "name": "videoId",
+        "type": "string"
+      }
+    ],
+    "name": "submitEvidence",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
+    "name": "supportsInterface",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "usdc",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]
