@@ -253,14 +253,34 @@ Rules:
 | `POST /api/worldid/verify` | IDKit result (as-is) | `{ nullifier, signature, attester, wallet }` | V1c |
 | `POST /api/jury/register` | `{ nullifier, signature }` | Circle `{ challengeId }` | V1c |
 | `GET /api/arbitrator/panel/:caseId` | — | `{ opened, closed, decided, commitDeadline, revealDeadline, commits, reveals, seats, band, majority, mySeat }` | V2 (built) |
-| `GET /api/court/:caseId` | — | `{ caseId, transcriptHash, transcript: { reason, terms, evidence, judges[3], deadline0, rounds: [{ round, extensionGranted, wordBudget, deadline, judges: [{ band, statement, cited, wantsExtend, isFinal, wordsUsed, note? }] }] } }`. Chain fields (aiBand, appealDeadline, appealFee, final band) are added after deploy | V2 (built: transcript part) |
-| `GET /api/court/:caseId/transcript` | — | the exact stored transcript JSON (its keccak256 = on-chain transcriptHash) | V2 (built) |
+| `GET /api/court/:caseId` | — (party or arbitrator) | `{ caseId, transcriptHash, transcript: { reason, terms, evidence, judges[3], deadline0, rounds: [{ round, extensionGranted, wordBudget, deadline, judges: [{ band, statement, cited, wantsExtend, isFinal, wordsUsed, note? }] }] } }` — the AI debate | V2 (built) |
+| `GET /api/court/:caseId/transcript` | — (WF3 token, party or arbitrator) | the exact stored transcript JSON (its keccak256 = on-chain transcriptHash) | V2 (built) |
 | `POST /api/court/:caseId/transcript` | `{ transcript, hash }` + header `x-court-token` | `{ ok }` (WF3 only; hash checked) | V2 (built) |
-| `POST /api/court/:caseId/appeal` | — | Circle `{ challengeId }` (approve + appeal) | V2 |
-| `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server derives the salt and remembers the band | V2 (built) |
-| `POST /api/arbitrator/reveal` | `{ caseId, band? }` | Circle `{ challengeId }` | V2 (built) |
-| `GET /api/arbitrator/cases` | — | open panels I can join | V2 |
-| `GET /api/arbitrator/profile` | — | `{ registered, cases, withMajority, strikes, suspended }` | V2 (built) |
+| `GET /api/court/:caseId/status` | — (party or arbitrator) | `{ dealId, clauseId, deadline, rounds, wordBudget, aiVerdict, appealDeadline, canAppeal, appealFeeUnits, appealed, appellant, finalized, finalBand, byHumans }` | V2 (built) |
+| `POST /api/court/:caseId/approve-fee` | — (party) | Circle `{ challengeId }`: USDC approve(court, appealFee) | V2 (built) |
+| `POST /api/court/:caseId/appeal` | — (party, after approve-fee, inside the 120 s window) | Circle `{ challengeId }`: court.appeal(caseId) | V2 (built) |
+| `POST /api/escrow/dispute` | `{ dealId, clauseId, reason }` (party, Verified/Failed, inside 120 s) | Circle `{ challengeId }` | V2 (built) |
+| `POST /api/arbitrator/commit` | `{ caseId, band }` (arbitrator) | Circle `{ challengeId }`; the server derives the salt and remembers the band | V2 (built) |
+| `POST /api/arbitrator/reveal` | `{ caseId, band? }` (arbitrator) | Circle `{ challengeId }` | V2 (built) |
+| `GET /api/arbitrator/panel/:caseId` | — (arbitrator) | see above | V2 (built) |
+| `GET /api/arbitrator/me` | — (signed in) | `{ wallet, verified, arbitrator, canAccessCourt }` → show/hide the court tab | V2 (built) |
+| `GET /api/arbitrator/dashboard` | — (arbitrator) | `{ profile: { cases, withMajority, strikes, suspended }, totals: { casesTaken, casesDecided, rightCalls, wrongCalls, pending, feesEarnedUnits }, history: [{ caseId, dealId, clauseId, reason, myBand, aiBand, panelBand, finalBand, outcome, feeEarnedUnits, status }] }` | V2 (built) |
+| `GET /api/arbitrator/cases` | — (arbitrator) | `{ cases: [{ caseId, dealId, clauseId, reason, aiBand, commitDeadline, revealDeadline, seatsTaken, mySeat, canJoin, blockedReason }] }` — appealed cases only | V2 (built) |
+| `GET /api/arbitrator/cases/:caseId` | — (arbitrator, not a party) | case file: `{ clause, evidence, reason, aiVerdict, aiTranscript, appeal, panel: { …, band & votes only after close }, final }` | V2 (built) |
+| `GET /api/arbitrator/profile` | — (signed in) | `{ registered, cases, withMajority, strikes, suspended }` | V2 (built) |
+| `GET /api/arbitrators/stats` | — (public) | `{ verifiedHumans, arbitrators, openPanels, casesDecided, decidedByHumans }` | V2 (built) |
+| `GET /api/worldid/status/:wallet` | — (public) | `{ wallet, verified, arbitrator, verifiedAt }` for the ✓ badge (no nullifier) | V2 (built) |
+| `POST /api/clauses/extract` | `{ text, startDate? }` (signed in) | `{ sentences: [{ id, text, clause, note }], clauses: [{ title, sentences, checkType, checkName, param, deadline, deadlineText, dependsOn, vague, vagueReason, agreement }], unaccounted, models, note }` — plain English → clauses, never amounts | V2 (built) |
+| `GET /api/automation/status` | — | watcher/keeper state + recent activity ("Chainlink is checking…") | V2 (built) |
+
+**Access rules:** the court section (`/api/arbitrator/*` except `me`/`profile`) is only for wallets registered on JurorRegistry
+(World ID-verified, checked on-chain). Parties see only their own case (`/api/court/:caseId*`). Votes stay hidden until the panel closes.
+
+**Database:** `server/data/settld.db` (SQLite built into Node, git-ignored). The watcher archives every contract event and keeps
+tables for deals, cases, panel votes, strikes, World ID-verified wallets, and each deal's story. The chain stays the source of truth.
+
+**Developer monitor (not part of the app):** `http://localhost:3000/monitor` — each deal's whole story in plain English, plus
+live workflow/keeper activity and contract events. Story data: `GET /api/monitor/story/:dealId`.
 
 ## Hand-offs
 - P2 → after each deploy: addresses in this file + ABI JSON in `shared/abi/`

@@ -19,7 +19,7 @@ const ESCROW = shared.clauseEscrow.address as Address;
 const chain = defineChain({
   id: shared.chainId, name: "Arc Testnet",
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [shared.rpc] } },
+  rpcUrls: { default: { http: [process.env.ARC_RPC_URL || shared.rpc] } },
 });
 const pub = createPublicClient({ chain, transport: http() });
 // any funded wallet can settle; the money still only goes to the creator or the brand

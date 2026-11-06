@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS panel_votes (
   PRIMARY KEY (case_id, arbitrator)
 );
 
+-- off-chain steps of a deal's story (contract text → clauses, deadlock check), for the monitor
+CREATE TABLE IF NOT EXISTS story (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  deal_id  INTEGER NOT NULL,
+  at       TEXT NOT NULL DEFAULT (datetime('now')),
+  icon     TEXT,
+  title    TEXT NOT NULL,
+  detail   TEXT
+);
+
 -- strikes per human (nullifier), mirrors JurorRegistry Struck events
 CREATE TABLE IF NOT EXISTS strikes (
   nullifier  TEXT NOT NULL,
@@ -246,3 +256,6 @@ export const panelVotes = (caseId: number) =>
 
 export const recentCases = (limit = 50) =>
   db.prepare('SELECT * FROM cases ORDER BY case_id DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+
+export const addStory = (dealId: number, icon: string, title: string, detail: string) =>
+  db.prepare('INSERT INTO story (deal_id, icon, title, detail) VALUES (?, ?, ?, ?)').run(dealId, icon, title, detail);

@@ -35,6 +35,7 @@ import { registerAutomation } from './automation.js';
 import { registerArbitrationRoutes } from './arbitration.js';
 import { recordEvent } from './db.js';
 import { registerMonitor } from './monitor.js';
+import { registerExtractRoutes } from './extract.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -671,6 +672,7 @@ registerAutomation(app, {
   onEvent: recordEvent,
   archiveFromBlock: shared.clauseEscrow?.deployBlock ? BigInt(shared.clauseEscrow.deployBlock) : undefined,
 });
+registerExtractRoutes(app, requireWallet);
 registerMonitor(app, { escrow: ESCROW_ADDRESS, court: shared.aiCourt?.address, registry: shared.jurorRegistry?.address }, addresses.explorer);
 // World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
 registerWorldIdRoutes(app, {
