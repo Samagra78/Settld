@@ -64,8 +64,9 @@ try {
     address: ESCROW, abi, functionName: "acceptDeal", args: [dealId],
   });
   await pub.waitForTransactionReceipt({ hash: acceptTx });
-  console.log(`✅ creator accepted deal ${dealId}`);
-  console.log(`\nNext: certify it with WF0:\n  cre workflow simulate wf0-certify --target staging-settings --non-interactive --trigger-index 0 --http-payload '{"dealId":${dealId}}' --broadcast`);
+  console.log(`✅ creator accepted deal ${dealId} — tx ${acceptTx}`);
+  console.log(`\nWF0 certifies automatically on DealAccepted. Simulate that trigger (from cre/):`);
+  console.log(`  cre workflow simulate wf0-certify --target staging-settings --non-interactive --trigger-index 1 --evm-tx-hash ${acceptTx} --evm-event-index 0 --broadcast`);
 } catch (e) {
   console.log(`❌ ${(e as Error).message.split("\n").slice(0, 2).join(" ")}`);
   if (broken) console.log("   (expected: the contract only allows depending on an EARLIER clause)");

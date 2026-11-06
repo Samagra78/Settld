@@ -23,13 +23,17 @@ import {
   LAST_FINALIZED_BLOCK_NUMBER,
   Runner,
   TxStatus,
+  type EVMLog,
   type HTTPPayload,
   type Runtime,
 } from "@chainlink/cre-sdk";
 import {
   decodeFunctionResult,
   encodeFunctionData,
+  hexToBigInt,
+  keccak256,
   parseAbi,
+  toBytes,
   zeroAddress,
   type Address,
   type Hex,
@@ -53,11 +57,23 @@ const ESCROW_ABI = parseAbi([
 
 type Result = { dealId: string; certified: boolean; reasons: string[]; txHash?: string };
 
+// Trigger 0 (manual / website button): HTTP {"dealId": N}
 export const onCertifyRequest = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
-  const { config } = runtime;
   const body = decodeJson(payload.input) as { dealId?: number | string };
   if (body?.dealId === undefined) throw new Error('Request body must be {"dealId": <number>}');
-  const dealId = BigInt(body.dealId);
+  return certifyDeal(runtime, BigInt(body.dealId));
+};
+
+// Trigger 1 (automatic): ClauseEscrow emits DealAccepted(uint256 indexed dealId)
+// when the creator accepts — no human needs to ask for certification.
+export const onDealAccepted = (runtime: Runtime<Config>, log: EVMLog): string => {
+  const dealId = hexToBigInt(bytesToHex(log.topics[1]) as Hex); // topics[1] = indexed dealId
+  runtime.log(`WF0 triggered automatically by DealAccepted for deal ${dealId}`);
+  return certifyDeal(runtime, dealId);
+};
+
+const certifyDeal = (runtime: Runtime<Config>, dealId: bigint): string => {
+  const { config } = runtime;
 
   const network = getNetwork({ chainFamily: "evm", chainSelectorName: config.chainSelectorName });
   if (!network) throw new Error(`Network not found: ${config.chainSelectorName}`);
@@ -151,10 +167,27 @@ export const onCertifyRequest = (runtime: Runtime<Config>, payload: HTTPPayload)
 // read("certified") returns a plain boolean
 const isTrue = (v: unknown): boolean => v === true;
 
-export const initWorkflow = (_config: Config) => {
+export const initWorkflow = (config: Config) => {
+  const network = getNetwork({ chainFamily: "evm", chainSelectorName: config.chainSelectorName });
+  if (!network) throw new Error(`Network not found: ${config.chainSelectorName}`);
+  const evm = new EVMClient(network.chainSelector.selector);
   const http = new HTTPCapability();
-  return [handler(http.trigger({}), onCertifyRequest)];
+
+  return [
+    // 0: manual certify (HTTP)
+    handler(http.trigger({}), onCertifyRequest),
+    // 1: automatic certify when the creator accepts
+    handler(
+      evm.logTrigger({
+        addresses: [hexToBase64(config.escrowAddress)],
+        topics: [{ values: [hexToBase64(DEAL_ACCEPTED_TOPIC)] }],
+      }),
+      onDealAccepted
+    ),
+  ];
 };
+
+const DEAL_ACCEPTED_TOPIC = keccak256(toBytes("DealAccepted(uint256)"));
 
 export async function main() {
   const runner = await Runner.newRunner<Config>();

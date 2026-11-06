@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "smoke": "bun run smoke.ts",
-    "create-deal": "bun run create-deal.ts"
+    "create-deal": "bun run create-deal.ts",
+    "fund-and-submit": "bun run fund-and-submit.ts",
+    "settle": "bun run settle.ts"
   },
   "dependencies": {
     "viem": "^2.57.16"
