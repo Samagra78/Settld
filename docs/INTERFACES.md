@@ -139,6 +139,7 @@ constructor(address forwarder, address usdc, address owner)
 dispute(uint256 dealId, uint8 clauseId, string reason) // client OR freelancer; Verified or Failed; now <= disputeWindowEnd → Disputed (4); opens the court case
 disputeWindowEnd(uint256 dealId, uint8 clauseId) view returns (uint64)
 caseOf(uint256 dealId, uint8 clauseId) view returns (uint256 caseId)
+evidenceOf(uint256 dealId, uint8 clauseId) view returns (string) // ADDED: the string passed to submitEvidence (WF3 reads it for round 0)
 resolveDispute(uint256 dealId, uint8 clauseId)         // anyone (keeper); needs court.finalVerdict final
                                                        //   share = amount * band / 100 → freelancer, rest → client
                                                        //   status Released if share > 0, Refunded if share == 0
@@ -190,6 +191,11 @@ abi.encode(uint8 kind /*6*/, uint256 caseId, uint8 round,
 - Evidence bits for `citedMask`: **0 = clause terms, 1 = submitted evidence, 2 = dispute reason**.
 - Round 0 = blind opinions; later rounds = discussion. WF3 counts and truncates words; the full transcript is stored
   off-chain and its hash is on-chain.
+- **Built:** `cre/wf3-court/` (rules in `court.ts`, 10 tests; full 3-round debate passes in `cre workflow simulate`).
+  Encoder: `encodeRoundReport` in `shared/report.ts`. WF3 sends one report per round only while the case is open
+  (not all final, rounds left, more than 20 s before the deadline). On the last round every judge is forced final.
+  A judge that is already final stays final and silent. A turn with no valid answer keeps the previous band
+  (50 on round 0). The keeper then calls `closeCase`.
 
 ## JurorRegistry v2 (Mehak). Human arbitrators, appeal only, never moves money
 ```solidity
@@ -236,7 +242,9 @@ Rules:
 | `POST /api/worldid/verify` | IDKit result (as-is) | `{ nullifier, signature, attester, wallet }` | V1c |
 | `POST /api/jury/register` | `{ nullifier, signature }` | Circle `{ challengeId }` | V1c |
 | `GET /api/arbitrator/panel/:caseId` | — | `{ opened, closed, decided, commitDeadline, revealDeadline, commits, reveals, seats, band, majority, mySeat }` | V2 (built) |
-| `GET /api/court/:caseId` | — | `{ dealId, clauseId, reason, deadline, wordBudget, rounds: [{ round, judges: [{ band, wordsUsed, wantsExtend, isFinal, citedMask, text }] }], aiBand?, appealDeadline?, appealFee, final?, band? }` | V2 |
+| `GET /api/court/:caseId` | — | `{ caseId, transcriptHash, transcript: { reason, terms, evidence, judges[3], deadline0, rounds: [{ round, extensionGranted, wordBudget, deadline, judges: [{ band, statement, cited, wantsExtend, isFinal, wordsUsed, note? }] }] } }`. Chain fields (aiBand, appealDeadline, appealFee, final band) are added after deploy | V2 (built: transcript part) |
+| `GET /api/court/:caseId/transcript` | — | the exact stored transcript JSON (its keccak256 = on-chain transcriptHash) | V2 (built) |
+| `POST /api/court/:caseId/transcript` | `{ transcript, hash }` + header `x-court-token` | `{ ok }` (WF3 only; hash checked) | V2 (built) |
 | `POST /api/court/:caseId/appeal` | — | Circle `{ challengeId }` (approve + appeal) | V2 |
 | `POST /api/arbitrator/commit` | `{ caseId, band }` | Circle `{ challengeId }`; the server derives the salt and remembers the band | V2 (built) |
 | `POST /api/arbitrator/reveal` | `{ caseId, band? }` | Circle `{ challengeId }` | V2 (built) |

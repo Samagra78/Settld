@@ -1,12 +1,17 @@
-// WF1 — Verify a submitted video, automatically.
+// WF1 — Verify a submitted deliverable, automatically.
 //
-// Trigger: ClauseEscrow emits ClauseSubmitted(uint256 indexed dealId, uint8 clauseId, string videoId)
-//          when the creator submits a YouTube video ID for a clause.
+// Trigger: ClauseEscrow emits ClauseSubmitted(uint256 indexed dealId, uint8 clauseId, string evidence)
+//          when the freelancer submits evidence for a clause: a YouTube id, any URL, a GitHub PR link,
+//          or an IPFS id of a screenshot.
 // Steps (every CRE node runs them and must agree on the verdict):
 //   1. Read the clause from ClauseEscrow (what has to be checked, and the deadline).
-//   2. Fetch the video's public data from YouTube.
-//   3. Decide PASS / FAIL for that clause's check type.
-//   4. Send a Verified (kind 1) or Failed (kind 2) report to ClauseEscrow.
+//   2. Run that clause's verifier:
+//        0 POSTED_BY / 1 DESC_CONTAINS → YouTube
+//        4 URL_LIVE / 5 URL_CONTAINS   → fetch the link (and look for the text)
+//        6 GITHUB_MERGED               → GitHub API: is the PR merged (into param repo, if set)?
+//        7 AI_CHECK                    → 3 free LLMs judge the linked content against the criteria; majority
+//   3. Decide PASS / FAIL.
+//   4. Send a Verified (kind 1) or Failed (kind 2) report to ClauseEscrow (value = reason code).
 //
 // YouTube source:
 //   - With a YOUTUBE_API_KEY secret: YouTube Data API v3 (status, publish date, title, description).
@@ -42,15 +47,24 @@ import {
 } from "viem";
 import { encodeReport, ReportKind, ARC_TESTNET_SELECTOR, ZERO32 } from "../../shared/report";
 
+import { askJudge, decodeText, DEFAULT_JUDGES, evidence, GUARDRAIL, parseJson, stripHtml } from "../lib/llm";
+
 export type Config = {
   chainSelectorName: string;
   escrowAddress: string;
   gasLimit: string;
+  // AI_CHECK demo safety: use canned votes instead of live model calls
+  replay?: boolean;
+  replayVerdicts?: Record<string, boolean[]>; // evidence string → 3 votes
 };
 
 // ClauseEscrow check types / statuses (docs/INTERFACES.md)
 const CHECK_POSTED_BY = 0;
 const CHECK_DESC_CONTAINS = 1;
+const CHECK_URL_LIVE = 4;
+const CHECK_URL_CONTAINS = 5;
+const CHECK_GITHUB_MERGED = 6;
+const CHECK_AI = 7;
 const STATUS_SUBMITTED = 1;
 
 const ESCROW_ABI = parseAbi([
@@ -60,11 +74,137 @@ const ESCROW_ABI = parseAbi([
 const CLAUSE_SUBMITTED_TOPIC = keccak256(toBytes("ClauseSubmitted(uint256,uint8,string)"));
 
 // Reason codes sent in the report's `value` field (0 = generic)
-const Reason = { OK: 0, NOT_FOUND: 1, NOT_PUBLIC: 2, LATE: 3, TEXT_MISSING: 4, UNSUPPORTED: 5 } as const;
+const Reason = {
+  OK: 0, NOT_FOUND: 1, NOT_PUBLIC: 2, LATE: 3, TEXT_MISSING: 4, UNSUPPORTED: 5,
+  LINK_DOWN: 6, NOT_MERGED: 7, AI_REJECTED: 8, NO_AI: 9,
+} as const;
 
 type Verdict = { pass: boolean; reason: number; detail: string };
 
-// ---------- YouTube fetch (runs on every node; nodes must return identical verdicts) ----------
+// ---------- any-link checks (runs on every node; nodes must return identical verdicts) ----------
+type Keys = { youtube: string; groq: string; gemini: string; openrouter: string };
+
+const verdictOf = (v: Verdict) => JSON.stringify(v);
+
+/** Pick the right verifier for the clause's check type. */
+const checkEvidence = (
+  sr: HTTPSendRequester,
+  evidenceStr: string,
+  checkType: number,
+  param: string,
+  deadline: bigint,
+  keys: Keys,
+  replay: boolean,
+  replayVerdicts: Record<string, boolean[]>
+): string => {
+  const ev = evidenceStr.trim();
+  if (checkType === CHECK_POSTED_BY || checkType === CHECK_DESC_CONTAINS) {
+    return checkVideo(sr, youtubeId(ev), checkType, param, deadline, keys.youtube);
+  }
+  if (checkType === CHECK_URL_LIVE || checkType === CHECK_URL_CONTAINS) return checkUrl(sr, ev, checkType, param);
+  if (checkType === CHECK_GITHUB_MERGED) return checkGithub(sr, ev, param);
+  if (checkType === CHECK_AI) return checkWithAI(sr, ev, param, keys, replay, replayVerdicts);
+  return verdictOf({ pass: false, reason: Reason.UNSUPPORTED, detail: `check type ${checkType} not supported by WF1` });
+};
+
+/** Accept a bare id or any YouTube URL (watch, youtu.be, shorts). */
+const youtubeId = (s: string) => {
+  const m = s.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : s;
+};
+
+/** ipfs://CID or a bare CID → a public gateway URL; anything else must be http(s). */
+const toUrl = (s: string) => {
+  if (s.startsWith("ipfs://")) return `https://ipfs.io/ipfs/${s.slice(7)}`;
+  if (/^(Qm[1-9A-Za-z]{44}|bafy[0-9a-z]{50,})$/.test(s)) return `https://ipfs.io/ipfs/${s}`;
+  return /^https?:\/\//i.test(s) ? s : "";
+};
+
+const checkUrl = (sr: HTTPSendRequester, ev: string, checkType: number, param: string): string => {
+  const url = toUrl(ev);
+  if (!url) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "evidence is not a link" });
+  const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
+  if (res.statusCode < 200 || res.statusCode >= 400) {
+    return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}` });
+  }
+  if (checkType === CHECK_URL_LIVE) return verdictOf({ pass: true, reason: Reason.OK, detail: "link is live" });
+  const text = stripHtml(decodeText(res.body), 200_000).toLowerCase();
+  const found = text.includes(param.toLowerCase());
+  return verdictOf(
+    found
+      ? { pass: true, reason: Reason.OK, detail: `page contains "${param}"` }
+      : { pass: false, reason: Reason.TEXT_MISSING, detail: `"${param}" not found on the page` }
+  );
+};
+
+/** GITHUB_MERGED: evidence = PR URL; optional param = "owner/repo" the PR must target. */
+const checkGithub = (sr: HTTPSendRequester, ev: string, param: string): string => {
+  const m = ev.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/i);
+  if (!m) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: "not a GitHub pull request link" });
+  const [, owner, repo, num] = m;
+  if (param.trim() && `${owner}/${repo}`.toLowerCase() !== param.trim().toLowerCase()) {
+    return verdictOf({ pass: false, reason: Reason.NOT_MERGED, detail: `PR is in ${owner}/${repo}, expected ${param}` });
+  }
+  const res = sr.sendRequest({
+    url: `https://api.github.com/repos/${owner}/${repo}/pulls/${num}`,
+    method: "GET",
+    headers: { "User-Agent": "Settld-CRE/1.0", Accept: "application/vnd.github+json" },
+  }).result();
+  if (res.statusCode !== 200) return verdictOf({ pass: false, reason: Reason.NOT_FOUND, detail: `GitHub ${res.statusCode}` });
+  const pr = JSON.parse(decodeText(res.body));
+  return verdictOf(
+    pr.merged === true
+      ? { pass: true, reason: Reason.OK, detail: `PR #${num} merged into ${owner}/${repo}` }
+      : { pass: false, reason: Reason.NOT_MERGED, detail: `PR #${num} is not merged` }
+  );
+};
+
+/** AI_CHECK: 3 free models each say pass/fail against the criteria; majority wins. */
+const checkWithAI = (
+  sr: HTTPSendRequester,
+  ev: string,
+  criteria: string,
+  keys: Keys,
+  replay: boolean,
+  replayVerdicts: Record<string, boolean[]>
+): string => {
+  let votes: boolean[];
+  if (replay) {
+    votes = replayVerdicts[ev] ?? [true, true, true];
+  } else {
+    // what the judges read: the linked page's text (or the evidence string itself if it isn't a link)
+    let content = ev;
+    const url = toUrl(ev);
+    if (url) {
+      const res = sr.sendRequest({ url, method: "GET", headers: { "User-Agent": "Settld-CRE/1.0" } }).result();
+      if (res.statusCode < 200 || res.statusCode >= 400) {
+        return verdictOf({ pass: false, reason: Reason.LINK_DOWN, detail: `link returned ${res.statusCode}` });
+      }
+      content = stripHtml(decodeText(res.body), 4000);
+    }
+    const user = [
+      `Criteria the freelancer's work must meet:\n"${criteria}"`,
+      evidence(1, "submitted work", content),
+      'Does the submitted work meet the criteria? Answer exactly {"pass": true} or {"pass": false}.',
+    ].join("\n\n");
+    const keyOf = { groq: keys.groq, gemini: keys.gemini, openrouter: keys.openrouter };
+    votes = [];
+    for (const judge of DEFAULT_JUDGES) {
+      const answer = parseJson<{ pass?: boolean }>(askJudge(sr, judge, keyOf[judge.provider], GUARDRAIL, user, 50));
+      if (answer && typeof answer.pass === "boolean") votes.push(answer.pass);
+    }
+  }
+  if (votes.length < 2) return verdictOf({ pass: false, reason: Reason.NO_AI, detail: "fewer than 2 AI judges answered" });
+  const yes = votes.filter(Boolean).length;
+  const pass = yes * 2 > votes.length;
+  return verdictOf({
+    pass,
+    reason: pass ? Reason.OK : Reason.AI_REJECTED,
+    detail: `AI check: ${yes} of ${votes.length} judges say it meets "${criteria}"`,
+  });
+};
+
+// ---------- YouTube ----------
 const checkVideo = (
   sendRequester: HTTPSendRequester,
   videoId: string,
@@ -165,17 +305,25 @@ export const onClauseSubmitted = (runtime: Runtime<Config>, log: EVMLog): string
     return JSON.stringify({ dealId: dealId.toString(), clauseId, skipped: true });
   }
 
-  // 2+3. YouTube check — every node fetches, they must agree on the identical verdict
-  let apiKey = "";
-  try {
-    apiKey = runtime.getSecret({ id: "YOUTUBE_API_KEY" }).result().value ?? "";
-  } catch {
-    apiKey = ""; // no key configured → oEmbed fallback
-  }
+  // 2+3. check the evidence — every node fetches, they must agree on the identical verdict
+  const secret = (id: string) => {
+    try {
+      return runtime.getSecret({ id }).result().value ?? "";
+    } catch {
+      return ""; // not configured → that source is skipped / falls back
+    }
+  };
+  const needsAI = clause.checkType === CHECK_AI && !config.replay;
+  const keys: Keys = {
+    youtube: clause.checkType <= CHECK_DESC_CONTAINS ? secret("YOUTUBE_API_KEY") : "",
+    groq: needsAI ? secret("GROQ_API_KEY") : "",
+    gemini: needsAI ? secret("GEMINI_API_KEY") : "",
+    openrouter: needsAI ? secret("OPENROUTER_API_KEY") : "",
+  };
   const http = new HTTPClient();
   const verdictJson = http
-    .sendRequest(runtime, checkVideo, consensusIdenticalAggregation<string>())(
-      videoId, clause.checkType, clause.param, clause.deadline, apiKey
+    .sendRequest(runtime, checkEvidence, consensusIdenticalAggregation<string>())(
+      videoId, clause.checkType, clause.param, clause.deadline, keys, !!config.replay, config.replayVerdicts ?? {}
     )
     .result();
   const verdict = JSON.parse(verdictJson) as Verdict;

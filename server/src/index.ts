@@ -30,6 +30,7 @@ import clauseEscrowAbi from '../../shared/abi/ClauseEscrow.json' with { type: 'j
 import certifyConfig from '../../cre/wf0-certify/config.staging.json' with { type: 'json' };
 import type { PublicClient } from 'viem';
 import { registerWorldIdRoutes } from './worldid.js';
+import { registerCourtRoutes } from './court.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -625,6 +626,7 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 });
 
 // World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
+registerCourtRoutes(app);
 registerWorldIdRoutes(app, {
   requireWallet,
   sessionOf,

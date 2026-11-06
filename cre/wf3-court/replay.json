@@ -1,0 +1,20 @@
+{
+  "_about": "Scripted debate for the demo (replay mode). Same answers every time, no API keys needed. Clause: landing page with the client's logo and a working signup form. Dispute: the client says the signup form is broken.",
+  "rounds": [
+    [
+      { "band": 50, "statement": "The page is live and shows the client's logo. The signup form accepts entries but sends no confirmation email, so the work looks only partly delivered.", "cited": [0, 1], "wantsExtend": false, "isFinal": false },
+      { "band": 80, "statement": "The clause asks for a working signup form. The submitted page has a form that accepts and stores entries. Confirmation emails are not in the terms, so most of the clause is met.", "cited": [0, 1], "wantsExtend": false, "isFinal": false },
+      { "band": 0, "statement": "The client reports the signup form is broken. A broken form means the main deliverable failed, so the client should be refunded.", "cited": [2], "wantsExtend": false, "isFinal": false }
+    ],
+    [
+      { "band": 80, "statement": "I agree with Gemini: the terms never mention emails. The form works as described in evidence 0, so I move to 80.", "cited": [0], "wantsExtend": true, "isFinal": false },
+      { "band": 80, "statement": "The dispute reason says broken, but the page in evidence 1 shows the form submitting successfully. I need a little more room to address the client's point fairly.", "cited": [1, 2], "wantsExtend": true, "isFinal": false },
+      { "band": 50, "statement": "Looking at evidence 1 again, the form does submit. I still think the missing confirmation hurts the client, so half is fair.", "cited": [1, 2], "wantsExtend": false, "isFinal": false }
+    ],
+    [
+      { "band": 80, "statement": "Final: the clause is met except for a nice-to-have the terms never asked for.", "cited": [0, 1], "wantsExtend": false, "isFinal": true },
+      { "band": 80, "statement": "Final: the client's complaint is about emails, which are outside the clause. The form itself works. 80 keeps a small margin for the client's real inconvenience.", "cited": [0, 1, 2], "wantsExtend": false, "isFinal": true },
+      { "band": 50, "statement": "Final: I keep 50. The majority may differ, and that is fine.", "cited": [1, 2], "wantsExtend": false, "isFinal": true }
+    ]
+  ]
+}
