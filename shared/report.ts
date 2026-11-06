@@ -56,7 +56,7 @@ export const ROUND_REPORT_KIND = 6;
 export type RoundReport = {
   caseId: bigint;
   round: number;
-  bands: [number, number, number];        // each judge's latest band: 0 / 50 / 80 / 100
+  bands: [number, number, number];        // each judge's latest band: 100 pay the freelancer, 0 refund the client
   wordsUsed: [number, number, number];    // running total per judge
   wantsExtend: [boolean, boolean, boolean];
   isFinal: [boolean, boolean, boolean];

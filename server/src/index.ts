@@ -341,6 +341,51 @@ app.get('/api/escrow/deals/:dealId', requireWallet, async (req, res) => {
   }
 });
 
+// The signed-in wallet's deals (as client or freelancer), newest first, with each clause's status and
+// dispute-window end. Scans the most recent 60 deals; enough for the demo, no indexer needed.
+app.get('/api/escrow/my-deals', requireWallet, async (_req, res) => {
+  if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
+    return res.status(503).json({ message: escrowUnavailable });
+  }
+  const me = sessionOf(res).address.toLowerCase();
+  const base = { address: ESCROW_ADDRESS, abi: escrowAbi } as const;
+  try {
+    const count = Number(await arc.readContract({ ...base, functionName: 'dealCount' }) as bigint);
+    const ids = Array.from({ length: Math.min(count, 60) }, (_, i) => BigInt(count - i)).filter((id) => id > 0n);
+    const deals = await Promise.all(ids.map(async (id) => {
+      const deal = await arc.readContract({ ...base, functionName: 'getDeal', args: [id] }) as {
+        brand: Address; creator: Address; total: bigint; accepted: boolean; funded: boolean;
+      };
+      const role = deal.brand.toLowerCase() === me ? 'client' : deal.creator.toLowerCase() === me ? 'freelancer' : null;
+      if (!role) return null;
+      const [certified, clauses] = await Promise.all([
+        arc.readContract({ ...base, functionName: 'certified', args: [id] }) as Promise<boolean>,
+        arc.readContract({ ...base, functionName: 'getClauses', args: [id] }) as Promise<{
+          status: number; amount: bigint; deadline: bigint; checkType: number; param: string; dependsOn: number; onFail: number;
+        }[]>,
+      ]);
+      const windows = await Promise.all(clauses.map((_c, i) =>
+        (arc.readContract({ ...base, functionName: 'disputeWindowEnd', args: [id, i] }) as Promise<bigint>).catch(() => 0n)));
+      // court case of each disputed (or court-settled) clause; 0 = never disputed
+      const cases = await Promise.all(clauses.map((c, i) => c.status >= 4
+        ? (arc.readContract({ ...base, functionName: 'caseOf', args: [id, i] }) as Promise<bigint>).catch(() => 0n)
+        : Promise.resolve(0n)));
+      return {
+        dealId: id.toString(), role, client: deal.brand, freelancer: deal.creator,
+        total: formatUnits(deal.total, 6), accepted: deal.accepted, funded: deal.funded, certified,
+        clauses: clauses.map((c, i) => ({
+          status: c.status, amount: formatUnits(c.amount, 6), deadline: c.deadline.toString(), checkType: c.checkType,
+          param: c.param, dependsOn: c.dependsOn, onFail: c.onFail, disputeWindowEnd: windows[i].toString(),
+          caseId: cases[i].toString(),
+        })),
+      };
+    }));
+    res.set('Cache-Control', 'no-store').json({ deals: deals.filter(Boolean) });
+  } catch {
+    res.status(502).json({ message: 'Could not read your deals from Arc Testnet.' });
+  }
+});
+
 app.get('/api/escrow/proposals/:txHash', requireWallet, async (req, res) => {
   const { txHash } = req.params;
   if (typeof txHash !== 'string' || !/^0x[\da-f]{64}$/i.test(txHash)) return bad(res, 'Invalid transaction hash.');
@@ -510,7 +555,8 @@ app.post('/api/escrow/submit', requireWallet, async (req, res) => {
   const { dealId, clauseId, videoId } = req.body;
   if (!isDealId(dealId)) return bad(res, 'Enter a valid deal ID.');
   if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
-  if (typeof videoId !== 'string' || !videoId || videoId.length > 64) return bad(res, 'videoId must be a short string');
+  // evidence is any link (post, reel, video, site, GitHub PR) or an IPFS id of a screenshot
+  if (typeof videoId !== 'string' || !videoId.trim() || videoId.length > 512) return bad(res, 'Send the link to your work (up to 512 characters).');
   if (!await checkEscrowAction(res, 'submitEvidence', [BigInt(dealId), Number(clauseId), videoId])) return;
   await prepareTrackedEscrowAction(res, 'submitEvidence(uint256,uint8,string)', [String(dealId), String(clauseId), videoId]);
 });

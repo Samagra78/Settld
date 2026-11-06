@@ -7,7 +7,8 @@
 //   - If 2 of 3 judges ask for more words: +100 words each and +60 s (at most 2 times, hard cap 5 min).
 //   - A judge may change its band only by citing evidence. Final judges stop talking.
 //   - Max 3 rounds (+1 per extension). On the last round everyone must vote final.
-//   - The verdict (majority of the LATEST bands, else the middle band) is computed by the contract.
+//   - Each vote is all or nothing: 100 = pay the freelancer the whole clause, 0 = refund the client.
+//     With two choices and three judges there is always a majority. The contract computes the verdict.
 
 import { countWords, evidence, GUARDRAIL, parseJson, truncateWords } from "../lib/llm";
 
@@ -18,7 +19,8 @@ export const BASE_SECS = 180;
 export const HARD_CAP_SECS = 300;
 export const MAX_EXT = 2;
 export const MAX_ROUNDS = 3;
-export const BANDS = [0, 50, 80, 100] as const;
+// Only the two ends of the contract's bands are used: the whole clause goes to one side.
+export const BANDS = [0, 100] as const;
 export const EVIDENCE_IDS = [0, 1, 2] as const; // 0 clause terms, 1 submitted evidence, 2 dispute reason
 
 export type JudgeTurn = {
@@ -83,13 +85,13 @@ export function shouldRunRound(t: Transcript, nowSec: number, marginSecs = 20): 
 }
 
 const BAND_MEANING =
-  "Bands = the freelancer's share of this clause's money: 0 = full refund to the client, 50 = half, " +
-  "80 = mostly delivered, 100 = pay the freelancer in full.";
+  "Your vote is all or nothing: 100 = the freelancer kept this promise and gets the whole clause's money, " +
+  "0 = the freelancer did not keep it and the client gets all of it back. There is no partial payment.";
 
 export function systemPrompt(): string {
   return [
     GUARDRAIL,
-    "You are one of three AI judges in Settld's court. You decide how much of ONE disputed clause the freelancer earned.",
+    "You are one of three AI judges in Settld's court. You decide whether the freelancer kept ONE disputed clause: pay the freelancer in full, or refund the client in full.",
     BAND_MEANING,
     "Evidence ids: 0 = clause terms, 1 = submitted work, 2 = the dispute reason.",
     "Be concise and specific. Cite the evidence ids you rely on.",
@@ -121,7 +123,7 @@ export function userPrompt(t: Transcript, judge: number, wordsLeft: number, roun
       : round === 0
         ? "Set isFinal to false: you will hear the other judges before you decide. Use only part of your words now."
         : 'Set isFinal to true when you will not change your mind. Set wantsExtend to true only if you need more words to explain.',
-    'Reply ONLY with JSON: {"band": 0|50|80|100, "statement": "...", "cited": [ids], "wantsExtend": true|false, "isFinal": true|false}'
+    'Reply ONLY with JSON: {"band": 0|100, "statement": "...", "cited": [ids], "wantsExtend": true|false, "isFinal": true|false}'
   );
   return parts.join("\n\n");
 }
@@ -147,7 +149,8 @@ export function applyAnswer(
   lastRound: boolean
 ): JudgeTurn {
   const prevWords = prev?.wordsUsed ?? 0;
-  const prevBand = prev?.band ?? 50;
+  // no valid answer: keep the previous vote; on round 0 default to 0 (the money stays with the payer)
+  const prevBand = prev?.band ?? 0;
   const a = parseJson<Answer>(raw);
 
   if (!a || !BANDS.includes(a.band as (typeof BANDS)[number])) {
