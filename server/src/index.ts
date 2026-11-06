@@ -489,12 +489,19 @@ async function checkEscrowAction(res: Response, action: string, args: unknown[])
   }
 }
 
+// Circle's transaction list for user-controlled wallets does not echo our refId back, so the server remembers each
+// tracked action (wallet, refId, time) and tags the matching escrow transaction in GET /api/transactions.
+const trackedActions = new Map<string, { refId: string; at: number }[]>();
+
 async function prepareTrackedEscrowAction(res: Response, signature: string, args: unknown[]) {
   const { walletId, userToken } = sessionOf(res);
   const refId = crypto.randomUUID();
   try {
     const result = await contractCall(userToken, walletId, ESCROW_ADDRESS, signature, args, refId);
     if (!result.ok) return reply(res, result);
+    const list = (trackedActions.get(walletId) ?? []).filter((a) => Date.now() - a.at < 30 * 60_000);
+    list.push({ refId, at: Date.now() - 5_000 });
+    trackedActions.set(walletId, list.slice(-20));
     res.status(result.status).json({ ...(result.json.data as { challengeId: string }), refId });
   } catch {
     res.status(502).json({ message: 'Could not reach Circle to prepare the transaction.' });
@@ -602,7 +609,22 @@ app.post('/api/escrow/refund', requireWallet, async (req, res) => {
 app.get('/api/transactions', requireWallet, async (_req, res) => {
   const { walletId, userToken } = sessionOf(res);
   const query = new URLSearchParams({ walletIds: walletId, includeAll: 'true', pageSize: '50' });
-  reply(res, await circle(`/v1/w3s/transactions?${query}`, { userToken }));
+  const r = await circle(`/v1/w3s/transactions?${query}`, { userToken });
+  if (!r.ok) return reply(res, r);
+  type Tx = { refId?: string; contractAddress?: string; operation?: string; createDate?: string };
+  const data = r.json.data as { transactions?: Tx[] };
+  const txs = data.transactions ?? [];
+  // put our refId back on the escrow transaction each tracked action produced: the first one created after it
+  const escrowTxs = txs
+    .filter((t) => t.operation === 'CONTRACT_EXECUTION' && t.contractAddress?.toLowerCase() === ESCROW_ADDRESS.toLowerCase())
+    .sort((a, b) => Date.parse(a.createDate ?? '') - Date.parse(b.createDate ?? ''));
+  const used = new Set<Tx>(escrowTxs.filter((t) => t.refId));
+  for (const action of trackedActions.get(walletId) ?? []) {
+    if (escrowTxs.some((t) => t.refId === action.refId)) continue;
+    const match = escrowTxs.find((t) => !used.has(t) && Date.parse(t.createDate ?? '') >= action.at);
+    if (match) { match.refId = action.refId; used.add(match); }
+  }
+  res.status(r.status).json(data);
 });
 
 // ---- Mock "add funds" (testnet only) ----------------------------------------
