@@ -202,7 +202,7 @@ const USDC_ADDRESS = '0x3600000000000000000000000000000000000000'; // 6 decimals
 const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.escrow;
 
 // Fixed contract + function per route (no generic "call anything" endpoint),
-// so this server can only ever prepare approve / fund / release.
+// so this server can only ever prepare the ClauseEscrow calls below.
 const contractCall = (
   userToken: string,
   walletId: string,
@@ -238,22 +238,99 @@ app.post('/api/escrow/approve', requireWallet, async (req, res) => {
     'approve(address,uint256)', [ESCROW_ADDRESS, String(req.body.amount)]));
 });
 
-// 6. Brand funds an escrow for a creator
-app.post('/api/escrow/fund', requireWallet, async (req, res) => {
-  const { creator, amount } = req.body;
+// ---- ClauseEscrow routes (see contracts/README.md) ----
+// Ids are plain integers; the contract itself enforces who may call what.
+
+const isU8 = (v: unknown) => /^\d+$/.test(String(v)) && Number(v) <= 255;
+const isU64 = (v: unknown) => /^\d+$/.test(String(v)) && BigInt(String(v)) < 2n ** 64n;
+const MAX_CLAUSES = 5;
+const NO_DEPENDENCY = 255;
+
+// Returns the contract's ClauseTerms tuples as string arrays, or an error message.
+// Field order must match ClauseTerms / shared/spec.ts:
+//   kind, checkType, param, deadline, amount, dependsOn, onFail, vestDays
+function parseClauses(raw: unknown): { terms: (string | number)[][] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_CLAUSES) {
+    return { error: `clauses must be an array of 1 to ${MAX_CLAUSES}` };
+  }
+  const terms: (string | number)[][] = [];
+  for (const [i, c] of raw.entries()) {
+    if (!isU8(c?.kind) || !isU8(c?.checkType) || !isU8(c?.onFail)) {
+      return { error: `clause ${i}: kind, checkType and onFail must be 0-255` };
+    }
+    if (typeof (c.param ?? '') !== 'string') return { error: `clause ${i}: param must be a string` };
+    if (!isU64(c.deadline)) return { error: `clause ${i}: deadline must be unix seconds` };
+    if (!isUnits(c.amount)) return { error: `clause ${i}: amount must be a positive integer (6-decimal units)` };
+    const dependsOn = c.dependsOn ?? NO_DEPENDENCY;
+    if (!isU8(dependsOn)) return { error: `clause ${i}: dependsOn must be 0-255 (255 = none)` };
+    if (!/^\d+$/.test(String(c.vestDays ?? 0))) return { error: `clause ${i}: vestDays must be a non-negative integer` };
+    terms.push([
+      Number(c.kind), Number(c.checkType), c.param ?? '', String(c.deadline),
+      String(c.amount), Number(dependsOn), Number(c.onFail), Number(c.vestDays ?? 0),
+    ]);
+  }
+  return { terms };
+}
+
+const CLAUSE_TUPLE = '(uint8,uint8,string,uint64,uint256,uint8,uint8,uint32)';
+
+// 6a. Brand proposes a deal: body { creator, total, clauses: [...] }
+app.post('/api/escrow/propose', requireWallet, async (req, res) => {
+  const { creator, total, clauses } = req.body;
   if (!isAddress(creator)) return bad(res, 'creator must be a wallet address');
-  if (!isUnits(amount)) return bad(res, 'amount must be a positive integer (6-decimal units)');
+  if (!isUnits(total)) return bad(res, 'total must be a positive integer (6-decimal units)');
+  const parsed = parseClauses(clauses);
+  if ('error' in parsed) return bad(res, parsed.error);
   const { walletId, userToken } = sessionOf(res);
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'fund(address,uint256)', [creator, String(amount)]));
+    `proposeDeal(address,uint256,${CLAUSE_TUPLE}[])`, [creator, String(total), parsed.terms] as unknown as string[]));
 });
 
-// 7. Brand releases an escrow to the creator
-app.post('/api/escrow/release', requireWallet, async (req, res) => {
-  if (!isId(req.body.id)) return bad(res, 'id must be a non-negative integer');
+// 6b. Creator accepts the exact terms
+app.post('/api/escrow/accept', requireWallet, async (req, res) => {
+  if (!isId(req.body.dealId)) return bad(res, 'dealId must be a non-negative integer');
   const { walletId, userToken } = sessionOf(res);
   reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
-    'release(uint256)', [String(req.body.id)]));
+    'acceptDeal(uint256)', [String(req.body.dealId)]));
+});
+
+// 6c. Brand funds the deal (needs accepted + certified + approved USDC)
+app.post('/api/escrow/fund', requireWallet, async (req, res) => {
+  if (!isId(req.body.dealId)) return bad(res, 'dealId must be a non-negative integer');
+  const { walletId, userToken } = sessionOf(res);
+  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
+    'fundDeal(uint256)', [String(req.body.dealId)]));
+});
+
+// 6d. Creator submits a video for a clause
+app.post('/api/escrow/submit', requireWallet, async (req, res) => {
+  const { dealId, clauseId, videoId } = req.body;
+  if (!isId(dealId)) return bad(res, 'dealId must be a non-negative integer');
+  if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
+  if (typeof videoId !== 'string' || !videoId || videoId.length > 64) return bad(res, 'videoId must be a short string');
+  const { walletId, userToken } = sessionOf(res);
+  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
+    'submitEvidence(uint256,uint8,string)', [String(dealId), String(clauseId), videoId]));
+});
+
+// 7a. Anyone releases a verified clause to the creator (after the dispute window)
+app.post('/api/escrow/release', requireWallet, async (req, res) => {
+  const { dealId, clauseId } = req.body;
+  if (!isId(dealId)) return bad(res, 'dealId must be a non-negative integer');
+  if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
+  const { walletId, userToken } = sessionOf(res);
+  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
+    'release(uint256,uint8)', [String(dealId), String(clauseId)]));
+});
+
+// 7b. Anyone refunds a failed clause to the brand
+app.post('/api/escrow/refund', requireWallet, async (req, res) => {
+  const { dealId, clauseId } = req.body;
+  if (!isId(dealId)) return bad(res, 'dealId must be a non-negative integer');
+  if (!isU8(clauseId)) return bad(res, 'clauseId must be 0-255');
+  const { walletId, userToken } = sessionOf(res);
+  reply(res, await contractCall(userToken, walletId, ESCROW_ADDRESS,
+    'refund(uint256,uint8)', [String(dealId), String(clauseId)]));
 });
 
 // 8. Recent transactions for the signed-in wallet (poll for state + txHash)
