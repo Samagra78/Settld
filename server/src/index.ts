@@ -2,7 +2,10 @@ import 'dotenv/config';
 import axios from 'axios';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { promisify, stripVTControlCharacters } from 'node:util';
 import {
   BaseError,
   ContractFunctionRevertedError,
@@ -24,6 +27,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import addresses from '../../shared/addresses.json' with { type: 'json' };
 import clauseEscrowAbi from '../../shared/abi/ClauseEscrow.json' with { type: 'json' };
+import certifyConfig from '../../cre/wf0-certify/config.staging.json' with { type: 'json' };
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -208,6 +212,9 @@ const USDC_ADDRESS = addresses.usdc; // 6 decimals
 const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS?.trim() || addresses.clauseEscrow.address;
 const escrowAbi = clauseEscrowAbi as Abi;
 const escrowUnavailable = 'ClauseEscrow is awaiting its Arc Testnet deployment address.';
+const runFile = promisify(execFile);
+const creProject = fileURLToPath(new URL('../../cre/', import.meta.url));
+let certifying = false;
 
 // Fixed contract + function per route (no generic "call anything" endpoint),
 // so this server can only ever prepare the ClauseEscrow calls below.
@@ -339,6 +346,59 @@ app.get('/api/escrow/proposals/:txHash', requireWallet, async (req, res) => {
     res.status(404).json({ message: 'No deal proposal was found in this transaction.' });
   } catch {
     res.status(502).json({ message: 'Could not read the proposal receipt from Arc Testnet.' });
+  }
+});
+
+app.post('/api/certify', requireWallet, async (req, res) => {
+  if (!isDealId(req.body.dealId)) return bad(res, 'Enter a valid deal ID.');
+  if (process.env.CRE_CERTIFY_ENABLED !== 'true') {
+    return res.status(503).json({ message: 'WF0 certification is disabled on this server.' });
+  }
+  if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS.toLowerCase() !== certifyConfig.escrowAddress.toLowerCase()) {
+    return res.status(503).json({ message: 'WF0 and the server must use the same ClauseEscrow deployment.' });
+  }
+  if (certifying) return res.status(429).json({ message: 'Another certification is running. Try again shortly.' });
+
+  const { address, blockchain } = sessionOf(res);
+  if (blockchain !== 'ARC-TESTNET') return bad(res, 'Use an Arc Testnet wallet for certification.');
+  const dealId = BigInt(req.body.dealId);
+  const read = { address: ESCROW_ADDRESS, abi: escrowAbi, args: [dealId] };
+  certifying = true;
+  try {
+    const deal = await arc.readContract({ ...read, functionName: 'getDeal' }) as { brand: Address; accepted: boolean };
+    if (deal.brand.toLowerCase() !== address.toLowerCase()) {
+      return res.status(403).json({ message: 'Only the brand wallet can request certification.' });
+    }
+    if (!deal.accepted) return res.json({ ok: false, reason: 'The creator must accept the deal before certification.' });
+    const isCertified = () => arc.readContract({ ...read, functionName: 'certified' });
+    if (await isCertified()) return res.json({ ok: true });
+
+    const { stdout } = await runFile(process.env.CRE_BINARY?.trim() || 'cre', [
+      'workflow', 'simulate', './wf0-certify', '--target', 'staging-settings', '--non-interactive',
+      '--trigger-index', '0', '--http-payload', JSON.stringify({ dealId: dealId.toString() }), '--broadcast',
+    ], { cwd: creProject, timeout: 120_000, maxBuffer: 1024 * 1024, windowsHide: true });
+
+    // WF0 returns a JSON string. The CLI may render it as a JSON-quoted string.
+    const output = stripVTControlCharacters(stdout).split('Workflow Simulation Result:').at(-1)?.trim() ?? '';
+    let result: { certified?: boolean; reasons?: unknown; txHash?: string } | undefined;
+    try {
+      const parsed = JSON.parse(output);
+      result = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+    } catch {
+      // The on-chain state below remains authoritative if the CLI format changes.
+    }
+    if (await isCertified()) {
+      const txHash = result?.txHash;
+      return res.json({ ok: true, ...(txHash && /^0x[\da-f]{64}$/i.test(txHash) && { txHash }) });
+    }
+    const reasons = result?.certified === false && Array.isArray(result.reasons)
+      ? result.reasons.filter((reason): reason is string => typeof reason === 'string').join(' ') : '';
+    res.json({ ok: false, reason: reasons || 'Certification is not visible on Arc yet. Reload the deal before retrying.' });
+  } catch (error) {
+    const message = escrowError(error);
+    res.status(message ? 404 : 502).json({ message: message ?? 'WF0 could not complete. Check the server’s CRE setup and the deal status.' });
+  } finally {
+    certifying = false;
   }
 });
 
@@ -565,7 +625,6 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
 // Routes added step by step (see docs/INTERFACES.md):
 //   S4  POST /api/deals, GET /api/deals/:specHash
 //   S5  POST /api/report/encode
-//   S8  POST /api/certify
 //   S10 POST /api/worldid
 
 app.listen(PORT, () => {

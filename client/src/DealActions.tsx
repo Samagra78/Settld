@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import CreateDeal from './CreateDeal'
-import { getDealStatus, getDealTransaction, getProposedDeal, type DealAction, type DealStatus } from './api'
+import { certifyDeal, getDealStatus, getDealTransaction, getProposedDeal, type DealAction, type DealStatus } from './api'
 
 const clauseStatuses = ['Pending', 'Submitted', 'Verified', 'Failed', 'Disputed', 'Released', 'Refunded']
 const failedStates = new Set(['FAILED', 'DENIED', 'CANCELLED'])
@@ -87,6 +87,25 @@ export default function DealActions({ walletAddress, onAuthorize, onConfirmed }:
     }
   }
 
+  async function certify() {
+    setBusy(true)
+    setNotice({ message: 'Running Chainlink certification…' })
+    try {
+      const result = await certifyDeal(dealId)
+      const hash = result.txHash
+      setNotice({
+        message: result.ok ? 'Chainlink certified the deal.' : result.reason ?? 'Chainlink did not certify the deal.',
+        error: !result.ok,
+        explorerUrl: hash && /^0x[\da-f]{64}$/i.test(hash) ? `https://explorer.testnet.arc.io/tx/${hash}` : undefined,
+      })
+      if (result.ok) setDeal((current) => current && { ...current, certified: true })
+    } catch (error) {
+      setNotice({ message: error instanceof Error ? error.message : 'Could not request certification.', error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const fundBlock = deal && (!deal.accepted ? 'The creator must accept the deal before funding.'
     : !deal.certified ? 'Chainlink must certify the deal before funding.'
     : deal.funded ? 'The deal is already funded.' : null)
@@ -128,6 +147,9 @@ export default function DealActions({ walletAddress, onAuthorize, onConfirmed }:
           {fundBlock && <p>{fundBlock}</p>}
           {isCreator && !deal.accepted && <button disabled={busy || !!pending} onClick={() => void run({ kind: 'accept', dealId })}>
             Accept deal
+          </button>}{' '}
+          {isBrand && !deal.certified && <button disabled={busy || !!pending || !deal.accepted} onClick={() => void certify()}>
+            Certify deal
           </button>}{' '}
           {isBrand && <button disabled={busy || !!pending || !!fundBlock} onClick={() => void run({ kind: 'fund', dealId })}>
             Fund deal

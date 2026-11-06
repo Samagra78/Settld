@@ -90,6 +90,8 @@ export type DealAction = Proposal
 
 export const getDealStatus = (dealId: string) => get<DealStatus>(`/escrow/deals/${encodeURIComponent(dealId)}`)
 export const getProposedDeal = (hash: string) => get<{ dealId: string }>(`/escrow/proposals/${encodeURIComponent(hash)}`)
+export const certifyDeal = (dealId: string) =>
+  request<{ ok: boolean; reason?: string; txHash?: string }>('post', '/certify', { dealId }, 145_000)
 
 export const prepareDealAction = ({ kind, ...args }: DealAction) =>
   post<{ challengeId: string; refId: string }>(`/escrow/${kind}`, args)
