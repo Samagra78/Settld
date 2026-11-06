@@ -1,11 +1,14 @@
 import { useState, type FormEvent } from 'react'
-import { getDealStatus, getDealTransaction, type DealAction, type DealStatus } from './api'
+import CreateDeal from './CreateDeal'
+import { certifyDeal, getDealStatus, getDealTransaction, getProposedDeal, type DealAction, type DealStatus } from './api'
 
 const clauseStatuses = ['Pending', 'Submitted', 'Verified', 'Failed', 'Disputed', 'Released', 'Refunded']
 const failedStates = new Set(['FAILED', 'DENIED', 'CANCELLED'])
 type Notice = { message: string; error?: boolean; explorerUrl?: string }
+type Pending = { refId: string; proposal: boolean }
 
-export default function DealActions({ onAuthorize, onConfirmed }: {
+export default function DealActions({ walletAddress, onAuthorize, onConfirmed }: {
+  walletAddress: string
   onAuthorize: (action: DealAction) => Promise<string>
   onConfirmed: () => void
 }) {
@@ -13,8 +16,9 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
   const [deal, setDeal] = useState<DealStatus | null>(null)
   const [clauseId, setClauseId] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [pending, setPending] = useState<string | null>(null)
+  const [pending, setPending] = useState<Pending | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [videoId, setVideoId] = useState('')
 
   async function loadDeal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -24,6 +28,7 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
     try {
       setDeal(await getDealStatus(dealId))
       setClauseId(0)
+      setVideoId('')
     } catch (error) {
       setNotice({ message: error instanceof Error ? error.message : 'Could not load the deal.', error: true })
     } finally {
@@ -31,7 +36,7 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
     }
   }
 
-  async function track(refId: string, explorerUrl?: string) {
+  async function track({ refId, proposal }: Pending, explorerUrl?: string) {
     try {
       for (let attempt = 0; attempt < 20; attempt++) {
         const tx = await getDealTransaction(refId)
@@ -39,11 +44,17 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
           explorerUrl = `https://explorer.testnet.arc.io/tx/${tx.txHash}`
           setNotice({ message: 'Broadcast. Waiting for confirmation…', explorerUrl })
         }
-        if (tx?.state === 'COMPLETE' && explorerUrl) {
+        if (tx?.state === 'COMPLETE' && explorerUrl && tx.txHash) {
+          const id = proposal ? (await getProposedDeal(tx.txHash)).dealId : dealId
           setPending(null)
-          setNotice({ message: 'Confirmed on Arc Testnet.', explorerUrl })
+          setNotice({ message: proposal ? `Deal ${id} created on Arc Testnet.` : 'Confirmed on Arc Testnet.', explorerUrl })
           onConfirmed()
-          await getDealStatus(dealId).then(setDeal).catch(() => setDeal(null))
+          if (proposal) {
+            setDealId(id)
+            setClauseId(0)
+            setVideoId('')
+          }
+          await getDealStatus(id).then(setDeal).catch(() => setDeal(null))
           return
         }
         if (tx && failedStates.has(tx.state)) {
@@ -65,11 +76,31 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
     setNotice({ message: 'Checking the deal and preparing Circle authorization…' })
     try {
       const refId = await onAuthorize(action)
-      setPending(refId)
+      const transaction = { refId, proposal: action.kind === 'propose' }
+      setPending(transaction)
       setNotice({ message: 'Submitted. Waiting for confirmation…' })
-      await track(refId)
+      await track(transaction)
     } catch (error) {
       setNotice({ message: error instanceof Error ? error.message : 'Could not submit the transaction.', error: true })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function certify() {
+    setBusy(true)
+    setNotice({ message: 'Running Chainlink certification…' })
+    try {
+      const result = await certifyDeal(dealId)
+      const hash = result.txHash
+      setNotice({
+        message: result.ok ? 'Chainlink certified the deal.' : result.reason ?? 'Chainlink did not certify the deal.',
+        error: !result.ok,
+        explorerUrl: hash && /^0x[\da-f]{64}$/i.test(hash) ? `https://explorer.testnet.arc.io/tx/${hash}` : undefined,
+      })
+      if (result.ok) setDeal((current) => current && { ...current, certified: true })
+    } catch (error) {
+      setNotice({ message: error instanceof Error ? error.message : 'Could not request certification.', error: true })
     } finally {
       setBusy(false)
     }
@@ -78,10 +109,17 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
   const fundBlock = deal && (!deal.accepted ? 'The creator must accept the deal before funding.'
     : !deal.certified ? 'Chainlink must certify the deal before funding.'
     : deal.funded ? 'The deal is already funded.' : null)
+  const isCreator = deal?.creator.toLowerCase() === walletAddress.toLowerCase()
+  const isBrand = deal?.brand.toLowerCase() === walletAddress.toLowerCase()
+  const clause = deal?.clauses[clauseId]
+  const canRefund = !!(deal?.funded && clause && (clause.status === 3 || (
+    clause.status < 5 && deal.clauses[clause.dependsOn]?.status === 6
+  )))
 
   return (
     <section aria-labelledby="deal-actions-heading">
       <h2 id="deal-actions-heading">ClauseEscrow</h2>
+      <CreateDeal disabled={busy || !!pending} onCreate={(proposal) => void run(proposal)} />
       <form onSubmit={(event) => void loadDeal(event)}>
         <label>
           Deal ID{' '}
@@ -93,17 +131,36 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
       {deal && (
         <div>
           <p>{deal.accepted ? 'Accepted' : 'Awaiting acceptance'} · {deal.certified ? 'Certified' : 'Awaiting certification'} · {deal.funded ? 'Funded' : 'Unfunded'}</p>
+          <p>Total: {deal.total} USDC</p>
+          <p>Brand <code>{deal.brand}</code></p>
+          <p>Creator <code>{deal.creator}</code></p>
+          <ul>
+            {deal.clauses.map((terms, index) => (
+              <li key={index}>
+                Clause {index + 1} · {terms.amount} USDC · {clauseStatuses[terms.status] ?? 'Unknown'}
+                <p>{terms.checkType === 1 ? `Description contains ${terms.param}` : 'Video posted by deadline'}</p>
+                <p>Deadline {new Date(Number(terms.deadline) * 1_000).toLocaleString()}</p>
+                <p>{terms.dependsOn === 255 ? 'No dependency' : `Depends on clause ${terms.dependsOn + 1}`} · {terms.onFail === 1 ? 'Refund remainder on failure' : 'Refund clause on failure'}</p>
+              </li>
+            ))}
+          </ul>
           {fundBlock && <p>{fundBlock}</p>}
-          <button disabled={busy || !!pending || !!fundBlock} onClick={() => void run({ kind: 'fund', dealId })}>
+          {isCreator && !deal.accepted && <button disabled={busy || !!pending} onClick={() => void run({ kind: 'accept', dealId })}>
+            Accept deal
+          </button>}{' '}
+          {isBrand && !deal.certified && <button disabled={busy || !!pending || !deal.accepted} onClick={() => void certify()}>
+            Certify deal
+          </button>}{' '}
+          {isBrand && <button disabled={busy || !!pending || !!fundBlock} onClick={() => void run({ kind: 'fund', dealId })}>
             Fund deal
-          </button>
+          </button>}
           {deal.clauses.length > 0 && (
             <div>
               <label>
                 Clause{' '}
                 <select value={clauseId} disabled={busy || !!pending} onChange={(event) => setClauseId(Number(event.target.value))}>
                   {deal.clauses.map(({ status }, id) => (
-                    <option key={id} value={id}>{id} · {clauseStatuses[status] ?? 'Unknown'}</option>
+                    <option key={id} value={id}>{id + 1} · {clauseStatuses[status] ?? 'Unknown'}</option>
                   ))}
                 </select>
               </label>{' '}
@@ -111,6 +168,16 @@ export default function DealActions({ onAuthorize, onConfirmed }: {
                 onClick={() => void run({ kind: 'release', dealId, clauseId })}>
                 Release clause
               </button>
+              <button disabled={busy || !!pending || !canRefund} onClick={() => void run({ kind: 'refund', dealId, clauseId })}>
+                Refund clause
+              </button>
+              {isCreator && deal.funded && clause?.status === 0 && (
+                <form onSubmit={(event) => { event.preventDefault(); void run({ kind: 'submit', dealId, clauseId, videoId: videoId.trim() }) }}>
+                  <label>YouTube video ID <input required pattern="[A-Za-z0-9_\-]{11}" maxLength={11}
+                    value={videoId} onChange={(event) => setVideoId(event.target.value)} disabled={busy || !!pending} /></label>{' '}
+                  <button disabled={busy || !!pending}>Submit video</button>
+                </form>
+              )}
             </div>
           )}
         </div>
