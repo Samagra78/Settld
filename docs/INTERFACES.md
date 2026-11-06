@@ -187,7 +187,7 @@ abi.encode(uint8 kind /*6*/, uint256 caseId, uint8 round,
            uint8[3] bands, uint16[3] wordsUsed, bool[3] wantsExtend, bool[3] isFinal,
            uint8[3] citedMask, bytes32 transcriptHash)
 ```
-- Judges: 0 = Groq Llama 3.3 70B, 1 = Gemini Flash, 2 = NVIDIA NIM (Mistral Small 24B).
+- Judges: 0 = Groq (OpenAI gpt-oss-120b), 1 = Google Gemini 3.5 Flash-Lite, 2 = NVIDIA NIM (Mistral Small 24B): three different model makers.
 - Evidence bits for `citedMask`: **0 = clause terms, 1 = submitted evidence, 2 = dispute reason**.
 - Round 0 = blind opinions; later rounds = discussion. WF3 counts and truncates words; the full transcript is stored
   off-chain and its hash is on-chain.

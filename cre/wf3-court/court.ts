@@ -118,7 +118,9 @@ export function userPrompt(t: Transcript, judge: number, wordsLeft: number, roun
     `You have ${wordsLeft} words left for the whole case; longer statements are cut off.`,
     lastRound
       ? "This is the LAST round: set isFinal to true and give your final band."
-      : 'Set isFinal to true when you will not change your mind. Set wantsExtend to true only if you need more words to explain.',
+      : round === 0
+        ? "Set isFinal to false: you will hear the other judges before you decide. Use only part of your words now."
+        : 'Set isFinal to true when you will not change your mind. Set wantsExtend to true only if you need more words to explain.',
     'Reply ONLY with JSON: {"band": 0|50|80|100, "statement": "...", "cited": [ids], "wantsExtend": true|false, "isFinal": true|false}'
   );
   return parts.join("\n\n");
@@ -175,7 +177,8 @@ export function applyAnswer(
     statement,
     cited,
     wantsExtend: a.wantsExtend === true,
-    isFinal: a.isFinal === true || lastRound,
+    // nobody can lock in before hearing the others: round 0 (no previous turn) is never final
+    isFinal: prev ? a.isFinal === true || lastRound : false,
     wordsUsed: prevWords + countWords(statement),
     note,
   };

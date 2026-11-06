@@ -9,7 +9,7 @@
 // Each round (every node runs it; they must agree):
 //   - Load the transcript: built from the chain on round 0; later fetched from the Settld server and checked
 //     against the transcriptHash recorded on-chain, so the server can't change what the judges said.
-//   - Ask each non-final judge (Groq Llama, Gemini, NVIDIA NIM Mistral) with guardrails; enforce the
+//   - Ask each non-final judge (Groq gpt-oss, Gemini, NVIDIA NIM Mistral) with guardrails; enforce the
 //     word budget, the evidence-citation rule and the extension rule (court.ts).
 //   - Store the new transcript on the server, then send a Round report (kind 6) to AICourt with the
 //     bands, word counts, extend votes, final flags, cited evidence and the transcript hash.

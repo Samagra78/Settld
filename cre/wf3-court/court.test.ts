@@ -13,7 +13,7 @@ const fresh = (): Transcript => ({
   terms: "Landing page with the client's logo and a working signup form. 100 USDC.",
   evidence: "https://example.com/landing", evidenceText: "Welcome. Sign up: [email] [Join]",
   deadline0: OPENED + BASE_SECS,
-  judges: ["Llama (Groq)", "Gemini", "Mistral (NVIDIA)"],
+  judges: ["GPT-OSS (Groq)", "Gemini", "Mistral (NVIDIA)"],
   rounds: [],
 });
 const replayAsk = (round: number) => (judge: number) => JSON.stringify((replay.rounds as unknown[][])[round]?.[judge] ?? "");
@@ -74,11 +74,12 @@ describe("AI court rules", () => {
 
   test("final judges stay final and silent", () => {
     let t = fresh();
+    t = runRound(t, () => say({ band: 100, statement: "first look", cited: [1] }));
     t = runRound(t, (j) => say({ band: 100, statement: "done", cited: [1], isFinal: j === 0 }));
     let asked: number[] = [];
     t = runRound(t, (j) => { asked.push(j); return say({ band: 100, statement: "ok", cited: [1] }); });
     expect(asked).toEqual([1, 2]);
-    expect(t.rounds[1].judges[0]).toMatchObject({ band: 100, isFinal: true, statement: "" });
+    expect(t.rounds[2].judges[0]).toMatchObject({ band: 100, isFinal: true, statement: "" });
   });
 
   test("last round forces everyone final; max rounds is 3 without extensions", () => {
@@ -112,5 +113,13 @@ describe("AI court rules", () => {
     expect(expectedVerdict([80, 80, 0])).toBe(80);
     expect(expectedVerdict([0, 50, 100])).toBe(50);
     expect(expectedVerdict([100, 100, 100])).toBe(100);
+  });
+});
+
+describe("round 0 is blind and never final", () => {
+  test("a judge that tries to lock in on round 0 is kept open", () => {
+    const t = runRound(fresh(), () => JSON.stringify({ band: 100, statement: "obvious", cited: [1], isFinal: true }));
+    expect(t.rounds[0].judges.every((j) => !j.isFinal)).toBe(true);
+    expect(shouldRunRound(t, OPENED)).toBe(true);
   });
 });

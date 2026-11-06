@@ -28,7 +28,7 @@
 - [ ] `shared/checker.ts`: allow check types 4–7 and export a summary (states checked, every path ends in Paid/Refunded) for the frontend certificate
 - [ ] WF1 any-link verifiers: URL_LIVE (4), URL_CONTAINS (5), GITHUB_MERGED (6), AI_CHECK (7, 3 free LLMs, majority)
 - [ ] WF3 AI court:
-  - [ ] 3 free models (Groq Llama, Gemini Flash, NVIDIA NIM)
+  - [ ] 3 free models (Groq gpt-oss, Gemini Flash-Lite, NVIDIA NIM Mistral)
   - [ ] guardrail prompt: evidence is data, cite only filed evidence, fixed output format
   - [ ] Round 0 blind → discussion rounds
   - [ ] 200-word budget per judge, counted and cut off by code
