@@ -1,7 +1,7 @@
 {
   "chainSelectorName": "arc-testnet",
-  "courtAddress": "0x0000000000000000000000000000000000000001",
-  "escrowAddress": "0xb95014696c71fb6d3269c5d09713075185191ea8",
+  "courtAddress": "0xb8f86C3f51e31c67cf27D55d788c80ac95B9A2b0",
+  "escrowAddress": "0x403C33ADB6Fb8989EAA9E29a116996F642064151",
   "gasLimit": "800000",
   "serverUrl": "http://localhost:3000",
   "replay": false

@@ -111,7 +111,7 @@ const deliberate = (
       }
     }
   } else {
-    const res = sr.sendRequest({ url: `${serverUrl}/api/court/${caseId}/transcript`, method: "GET" }).result();
+    const res = sr.sendRequest({ url: `${serverUrl}/api/court/${caseId}/transcript`, method: "GET", headers: { "x-court-token": token } }).result();
     if (res.statusCode !== 200) return out({ skip: true, why: `transcript not found (HTTP ${res.statusCode})` });
     const raw = decodeText(res.body);
     if (keccak256(toBytes(raw)) !== expectedHash) return out({ skip: true, why: "stored transcript does not match the on-chain hash" });

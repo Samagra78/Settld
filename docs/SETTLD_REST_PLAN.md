@@ -11,7 +11,7 @@
 - [ ] Run the tests listed for that merge point; all must pass
 - [ ] Announce in the group: "merging X into dev". **Only one person merges at a time**
 - [ ] Merge into `dev`, never `main`. Everyone pulls `dev` straight after
-- [ ] No Claude co-author lines in commits
+- [ ] No AI-tool co-author lines in commits
 
 ---
 
@@ -113,7 +113,7 @@
 - [ ] Top up the treasury wallet
 
 ### Purva
-- [ ] Keep polishing on mock data; landing page from Claude Design + a future-scope section
+- [ ] Keep polishing on mock data; landing page from the design work + a future-scope section
 
 ## MERGE POINT M3: backend live
 - [ ] **Mehak:** pull `dev` → merge into `dev`

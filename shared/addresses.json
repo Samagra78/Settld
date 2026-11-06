@@ -8,11 +8,36 @@
   "crePlatformForwarderMock": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
   "crePlatformForwarderProduction": "0x76c9cf548b4179F8901cda1f8623568b58215E62",
   "clauseEscrow": {
+    "address": "0x403C33ADB6Fb8989EAA9E29a116996F642064151",
+    "deployTx": "0xe061d98605e44d92138d1ebf9f06508bd1ff3b9b946d5a6982ae310745792514",
+    "builtIn": "Arc Studio (source); deployed with Hardhat",
+    "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
+    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
+    "deployBlock": 71059039
+  },
+  "aiCourt": {
+    "address": "0xb8f86C3f51e31c67cf27D55d788c80ac95B9A2b0",
+    "deployTx": "0xc1cf2c61775137b1323760222d1250c6174b94d1270529b00b83484df505471e",
+    "builtIn": "Arc Studio (source); deployed with Hardhat",
+    "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
+    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
+    "deployBlock": 71059044
+  },
+  "jurorRegistry": {
+    "address": "0xE932eCA0dEBB7A939749F035EA4209F43c42bC7E",
+    "deployTx": "0x744f14f0cb6b9337a370ab09457ed9660d866d42372d86587ebc6cf604a8ef17",
+    "builtIn": "Arc Studio (source); deployed with Hardhat",
+    "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
+    "owner": "0xf808771a6f3d9094319ee344b0ff07009e84ddc4",
+    "attester": "0xDC930A8Fa2A3AE6820A30f2FF57863AaF772a861",
+    "deployBlock": 71059055
+  },
+  "clauseEscrowV1": {
     "address": "0xb95014696c71fb6d3269c5d09713075185191ea8",
     "deployTx": "0x94bf19194f4b7cb0c81bad7b2c977edb66c09fcca78fd5d8cb2b669c555b8905",
     "builtIn": "Arc Studio",
     "forwarder": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
     "owner": "0xa3039A54856ed74B5AEc999EeF3fc954Ab010Cf6",
-    "note": "Owner is Arc Studio's shared deployer wallet: setForwarderAddress and the workflow setters cannot be called on this deployment."
+    "note": "V1 (no disputes), superseded by clauseEscrow. Owner is Arc Studio shared wallet."
   }
 }

@@ -32,6 +32,9 @@ import type { PublicClient } from 'viem';
 import { registerWorldIdRoutes } from './worldid.js';
 import { registerCourtRoutes } from './court.js';
 import { registerAutomation } from './automation.js';
+import { registerArbitrationRoutes } from './arbitration.js';
+import { recordEvent } from './db.js';
+import { registerMonitor } from './monitor.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -549,7 +552,7 @@ const arcTestnet = defineChain({
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || addresses.rpc] } },
 });
-const arc = createPublicClient({ chain: arcTestnet, transport: http() });
+const arc = createPublicClient({ chain: arcTestnet, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
 const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
 
 app.get('/api/ping', requireWallet, async (_req, res) => {
@@ -612,7 +615,7 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
     }
 
     const account = privateKeyToAccount(key);
-    const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
+    const wallet = createWalletClient({ account, chain: arcTestnet, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
     const usdcAbi = parseAbi([
       'function transfer(address to, uint256 amount) returns (bool)',
       'function balanceOf(address) view returns (uint256)',
@@ -643,8 +646,21 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
   }
 });
 
-// World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
-registerCourtRoutes(app);
+// Arbitration (arbitrator-only court, parties' dispute/appeal) — registered BEFORE the World ID routes,
+// so its arbitrator gate runs in front of /api/arbitrator/commit|reveal|panel
+const shared = addresses as unknown as {
+  usdc: string; aiCourt?: { address?: string }; jurorRegistry?: { address?: string }; clauseEscrow?: { deployBlock?: number };
+};
+const arbitration = registerArbitrationRoutes(app, {
+  requireWallet, sessionOf, contractCall, reply,
+  arc: arc as unknown as PublicClient,
+  escrow: ESCROW_ADDRESS,
+  court: shared.aiCourt?.address,
+  registry: process.env.JUROR_REGISTRY_ADDRESS?.trim() || shared.jurorRegistry?.address,
+  usdc: USDC_ADDRESS,
+  escrowAbi,
+});
+registerCourtRoutes(app, { requireWallet, partyOrArbitrator: arbitration.partyOrArbitrator });
 registerAutomation(app, {
   arc: arc as unknown as PublicClient,
   chain: arcTestnet,
@@ -652,7 +668,11 @@ registerAutomation(app, {
   addresses: addresses as never,
   escrowOverride: process.env.ESCROW_ADDRESS?.trim(),
   creProject,
+  onEvent: recordEvent,
+  archiveFromBlock: shared.clauseEscrow?.deployBlock ? BigInt(shared.clauseEscrow.deployBlock) : undefined,
 });
+registerMonitor(app, { escrow: ESCROW_ADDRESS, court: shared.aiCourt?.address, registry: shared.jurorRegistry?.address }, addresses.explorer);
+// World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
 registerWorldIdRoutes(app, {
   requireWallet,
   sessionOf,
