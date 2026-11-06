@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { W3SSdk } from '@circle-fin/w3s-pw-web-sdk'
 import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
+import ApprovalPanel from './ApprovalPanel'
+import DealActions from './DealActions'
+import PingStatus from './PingStatus'
 import {
   CircleError,
   addFunds,
@@ -10,7 +13,10 @@ import {
   initializeUser,
   listWallets,
   logout,
+  prepareApproval,
+  prepareDealAction,
   requestEmailOtp,
+  type DealAction,
   type Me,
 } from './api'
 
@@ -138,6 +144,31 @@ function App() {
   // Step 2: Circle's hosted window collects the OTP.
   const verifyOtp = () => sdkRef.current?.verifyOtp()
 
+  const authorizeChallenge = async (challengeId: string) => {
+    const sdk = sdkRef.current
+    if (!sdk || !login || !me) throw new Error('Sign in with Circle to authorize the transaction.')
+
+    sdk.setAuthentication(login)
+    await new Promise<void>((resolve, reject) => {
+      sdk.execute(challengeId, (error, result) => {
+        if (error) reject(new Error(error.message || 'Circle authorization failed.'))
+        else if (result?.status === 'COMPLETE') resolve()
+        else reject(new Error('Circle did not complete the authorization challenge.'))
+      })
+    })
+  }
+
+  const approveUsdc = async (amount: string) => {
+    const { challengeId } = await prepareApproval(amount)
+    await authorizeChallenge(challengeId)
+  }
+
+  const authorizeDealAction = async (action: DealAction) => {
+    const { challengeId, refId } = await prepareDealAction(action)
+    await authorizeChallenge(challengeId)
+    return refId
+  }
+
   // Step 3: initialize the user (first time) -> challenge -> user sets PIN -> wallet.
   const createOrLoadWallet = async () => {
     if (!login) return
@@ -177,10 +208,10 @@ function App() {
         style={{ width: '100%', padding: 8, marginBottom: 12 }}
       />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button onClick={sendOtp} disabled={!deviceId || !email}>
+        <button onClick={sendOtp} disabled={!!me || !deviceId || !email}>
           1. Send OTP
         </button>
-        <button onClick={verifyOtp} disabled={!otpReady || !!login}>
+        <button onClick={verifyOtp} disabled={!!me || !otpReady || !!login}>
           2. Verify OTP
         </button>
         <button onClick={createOrLoadWallet} disabled={!login || !!me}>
@@ -210,6 +241,17 @@ function App() {
           <p style={{ fontSize: 12, opacity: 0.7 }}>
             Mock payment: nothing is charged. Testnet USDC is sent to your wallet.
           </p>
+          <PingStatus />
+          {me.blockchain === 'ARC-TESTNET' && (login ? (
+            <>
+              <ApprovalPanel key={me.walletId} onApprove={approveUsdc} />
+              <DealActions key={`deal-${me.walletId}`} onAuthorize={authorizeDealAction} onConfirmed={() => {
+                void loadBalance().catch(() => say('Transaction confirmed. Could not refresh the wallet balance.', true))
+              }} />
+            </>
+          ) : (
+            <p>To approve USDC after restoring a session, sign out and verify your email again.</p>
+          ))}
         </div>
       )}
     </main>

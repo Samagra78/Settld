@@ -3,6 +3,8 @@
   "rpc": "https://rpc.testnet.arc.network",
   "explorer": "https://explorer.testnet.arc.io",
   "usdc": "0x3600000000000000000000000000000000000000",
+  "ping": "0x14f6965f09f80ec65b190d4e377aadd8708469df",
+  "escrow": "0x500dbfb5073d696a9a9c3d7f8c251c68e01f73fa",
   "crePlatformForwarderMock": "0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1",
   "crePlatformForwarderProduction": "0x76c9cf548b4179F8901cda1f8623568b58215E62",
   "clauseEscrow": {
