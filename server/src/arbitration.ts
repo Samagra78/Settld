@@ -73,7 +73,8 @@ export function registerArbitrationRoutes(app: Express, d: ArbitrationDeps) {
     if (hit && Date.now() - hit.at < 30_000) return hit.nullifier;
     if (!registry) return 0n;
     const n = await d.arc.readContract({ address: registry, abi: registryAbi, functionName: 'nullifierOf', args: [wallet as Address] });
-    cache.set(lc(wallet), { nullifier: n, at: Date.now() });
+    // only cache a yes: a fresh registration must show up straight away
+    if (n !== 0n) cache.set(lc(wallet), { nullifier: n, at: Date.now() });
     return n;
   };
 

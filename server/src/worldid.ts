@@ -50,6 +50,7 @@ const REGISTRY = () => env('JUROR_REGISTRY_ADDRESS');
 
 const registryAbi = parseAbi([
   'function nullifierOf(address) view returns (uint256)',
+  'function walletOf(uint256) view returns (address)',
   'function profile(uint256 nullifier) view returns (uint32 cases, uint32 withMajority, uint8 strikes, bool suspended)',
   'function decision(uint256 caseId) view returns (bool decided, uint8 band, address[] majority)',
   'function getPanel(uint256 caseId) view returns (address client, address freelancer, uint64 commitDeadline, uint64 revealEnd, uint8 commits, uint8 reveals, bool opened, bool closed, uint8 band, address[3] seats)',
@@ -171,7 +172,25 @@ export function registerWorldIdRoutes(app: Express, d: WorldIdDeps) {
     if (!/^\d+$/.test(String(nullifier)) || !/^0x[0-9a-fA-F]{130}$/.test(String(signature))) {
       return res.status(400).json({ message: 'Verify with World ID first.' });
     }
-    const { userToken, walletId } = d.sessionOf(res);
+    const { userToken, walletId, address } = d.sessionOf(res);
+    // the registry's own rules, checked before the PIN so a refusal reads clearly
+    try {
+      const registry = REGISTRY() as Address;
+      const [mine, holder] = await Promise.all([
+        d.arc.readContract({ address: registry, abi: registryAbi, functionName: 'nullifierOf', args: [address as Address] }),
+        d.arc.readContract({ address: registry, abi: registryAbi, functionName: 'walletOf', args: [BigInt(nullifier)] }),
+      ]);
+      if (mine !== 0n) {
+        return mine === BigInt(nullifier)
+          ? res.json({ alreadyRegistered: true })
+          : res.status(409).json({ message: 'This wallet is already linked to a different World ID.' });
+      }
+      if (holder !== zeroAddress) {
+        return res.status(409).json({ message: 'This World ID already holds an arbitrator seat on another wallet. One person, one seat: sign in with that wallet.' });
+      }
+    } catch {
+      return res.status(502).json({ message: 'Could not check the arbitrator registry on Arc. Try again.' });
+    }
     d.reply(res, await d.contractCall(userToken, walletId, REGISTRY(), 'registerPerson(uint256,bytes)', [String(nullifier), signature]));
   });
 
