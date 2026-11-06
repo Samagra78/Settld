@@ -15,6 +15,7 @@ import {
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import addresses from '../../shared/addresses.json' with { type: 'json' };
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -40,9 +41,9 @@ app.get('/api/hello', (_req, res) => {
 
 app.get('/api/ping', async (_req, res) => {
   res.set('Cache-Control', 'no-store');
-  const address = process.env.PING_ADDRESS?.trim();
-  if (!address || !isAddress(address) || address === zeroAddress) {
-    res.status(503).json({ error: 'Configure the Arc Testnet Ping contract address.' });
+  const address = typeof addresses.ping === 'string' ? addresses.ping.trim() : '';
+  if (!isAddress(address) || address === zeroAddress) {
+    res.status(503).json({ error: 'Set the Arc Testnet Ping contract address in shared/addresses.json.' });
     return;
   }
 
