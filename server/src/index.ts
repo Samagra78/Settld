@@ -242,11 +242,12 @@ const contractCall = (
   if (!isAddress(ESCROW_ADDRESS) || ESCROW_ADDRESS === zeroAddress) {
     return Promise.resolve({ status: 503, ok: false, json: { message: escrowUnavailable } });
   }
-  const send = (withAmount: boolean, idempotencyKey: string) => circle('/v1/w3s/user/transactions/contractExecution', {
+  // Circle's PIN screen shows a blank amount for contract calls (nothing is sent with them); that's expected.
+  return circle('/v1/w3s/user/transactions/contractExecution', {
     method: 'POST',
     userToken,
     body: {
-      idempotencyKey,
+      idempotencyKey: refId ?? crypto.randomUUID(),
       ...(refId && { refId }),
       walletId,
       contractAddress,
@@ -255,15 +256,7 @@ const contractCall = (
       // user-controlled wallets take a flat feeLevel; the nested `fee` object is ignored and Circle
       // then rejects the call ("gasPrice may not be empty when FeeLevel ... are not set")
       feeLevel: 'MEDIUM',
-      // "0 USDC sent with this call", so Circle's PIN screen can show 0 instead of a blank amount.
-      // amount = native USDC actually sent WITH the transaction, so it must stay 0: nothing moves here.
-      ...(withAmount && { amount: '0' }),
     },
-  });
-  return send(true, refId ?? crypto.randomUUID()).then((r) => {
-    // if Circle refuses an amount on a non-payable call, retry once without it (fresh idempotency key)
-    const msg = JSON.stringify(r.json ?? {}).toLowerCase();
-    return !r.ok && msg.includes('amount') ? send(false, crypto.randomUUID()) : r;
   });
 };
 
