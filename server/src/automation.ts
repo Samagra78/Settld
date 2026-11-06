@@ -143,10 +143,15 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
       if (from > latest) return;
       const to = latest - from > 1999n ? from + 1999n : latest;
 
-      for (const s of sources) {
-        if (!s.address) continue;
-        const logs = await d.arc.getLogs({ address: s.address, event: s.event, fromBlock: from, toBlock: to });
-        for (const l of logs as unknown as { args: Record<string, unknown>; transactionHash: Hex; logIndex: number }[]) {
+      // ONE log query per tick for every contract and event (Arc's public RPC rate-limits bursts)
+      const active = sources.filter((s) => s.address);
+      const addresses = [...new Set(active.map((s) => s.address!))];
+      const all = (await d.arc.getLogs({
+        address: addresses, events: active.map((s) => s.event), fromBlock: from, toBlock: to,
+      } as never)) as unknown as { address: Address; eventName: string; args: Record<string, unknown>; transactionHash: Hex; logIndex: number }[];
+      for (const s of active) {
+        const logs = all.filter((l) => l.eventName === s.event.name && l.address.toLowerCase() === s.address!.toLowerCase());
+        for (const l of logs) {
           const key = `${l.transactionHash}:${l.logIndex}`;
           if (state.seen.includes(key)) continue;
           state.seen.push(key);
@@ -213,7 +218,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
   // ---------- KEEPER ----------
   const keyHex = env('KEEPER_PRIVATE_KEY');
   const keeper = keyHex
-    ? createWalletClient({ account: privateKeyToAccount((keyHex.startsWith('0x') ? keyHex : `0x${keyHex}`) as Hex), chain: d.chain, transport: http() })
+    ? createWalletClient({ account: privateKeyToAccount((keyHex.startsWith('0x') ? keyHex : `0x${keyHex}`) as Hex), chain: d.chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) })
     : null;
   if (!keeper) console.log('[automation] keeper off: set KEEPER_PRIVATE_KEY (a funded test wallet) in server/.env');
 
@@ -295,7 +300,7 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     }
   };
 
-  const watchMs = Number(env('WATCH_INTERVAL_MS')) || 4000;
+  const watchMs = Number(env("WATCH_INTERVAL_MS")) || 6000;
   const keepMs = Number(env('KEEPER_INTERVAL_MS')) || 30_000;
   setInterval(() => void watch(), watchMs);
   setInterval(() => void keep(), keepMs);

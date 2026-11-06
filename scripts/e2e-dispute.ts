@@ -20,10 +20,11 @@ const load = (n: string) => {
 const escrowAbi = load("ClauseEscrow"), courtAbi = load("AICourt");
 const ESCROW = shared.clauseEscrow.address as Address, COURT = shared.aiCourt.address as Address;
 const USDC = shared.usdc as Address;
+// Arc public RPC rate-limits bursts: every call retries with back-off (retryCount 8, 1.5 s base)
 const chain = defineChain({ id: shared.chainId, name: "Arc Testnet", nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: { default: { http: [shared.rpc] } } });
-const pub = createPublicClient({ chain, transport: http() });
-const client = createWalletClient({ account: privateKeyToAccount(process.env.BRAND_PRIVATE_KEY as Hex), chain, transport: http() });
-const freelancer = createWalletClient({ account: privateKeyToAccount(process.env.TESTER_PRIVATE_KEY as Hex), chain, transport: http() });
+const pub = createPublicClient({ chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
+const client = createWalletClient({ account: privateKeyToAccount(process.env.BRAND_PRIVATE_KEY as Hex), chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
+const freelancer = createWalletClient({ account: privateKeyToAccount(process.env.TESTER_PRIVATE_KEY as Hex), chain, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
 const erc20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)"]);
 const EXPLORER = shared.explorer;
 

@@ -549,7 +549,7 @@ const arcTestnet = defineChain({
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || addresses.rpc] } },
 });
-const arc = createPublicClient({ chain: arcTestnet, transport: http() });
+const arc = createPublicClient({ chain: arcTestnet, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
 const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
 
 app.get('/api/ping', requireWallet, async (_req, res) => {
@@ -612,7 +612,7 @@ app.post('/api/funds/add', requireWallet, async (_req, res) => {
     }
 
     const account = privateKeyToAccount(key);
-    const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
+    const wallet = createWalletClient({ account, chain: arcTestnet, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
     const usdcAbi = parseAbi([
       'function transfer(address to, uint256 amount) returns (bool)',
       'function balanceOf(address) view returns (uint256)',
