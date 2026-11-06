@@ -40,9 +40,9 @@ export class CircleError extends Error {
   }
 }
 
-async function request<T>(method: 'get' | 'post', path: string, body?: object): Promise<T> {
+async function request<T>(method: 'get' | 'post', path: string, body?: object, timeout?: number): Promise<T> {
   try {
-    const res = await http.request<T>({ method, url: path, data: body })
+    const res = await http.request<T>({ method, url: path, data: body, timeout })
     return res.data
   } catch (e) {
     if (axios.isAxiosError(e) && e.response) {
@@ -76,6 +76,21 @@ export const getBalances = () => get<{ tokenBalances: TokenBalance[] }>('/balanc
 
 export const prepareApproval = (amount: string) =>
   post<{ challengeId: string }>('/escrow/approve', { amount })
+
+export type DealStatus = { accepted: boolean; certified: boolean; funded: boolean; clauses: { status: number }[] }
+export type DealAction = { kind: 'fund'; dealId: string } | { kind: 'release'; dealId: string; clauseId: number }
+
+export const getDealStatus = (dealId: string) => get<DealStatus>(`/escrow/deals/${encodeURIComponent(dealId)}`)
+
+export const prepareDealAction = ({ kind, ...args }: DealAction) =>
+  post<{ challengeId: string; refId: string }>(`/escrow/${kind}`, args)
+
+type Transaction = { refId?: string; state: string; txHash?: string; errorReason?: string }
+
+export async function getDealTransaction(refId: string) {
+  const { transactions } = await request<{ transactions?: Transaction[] }>('get', '/transactions', undefined, 10_000)
+  return transactions?.find((transaction) => transaction.refId === refId)
+}
 
 // Mock top-up (testnet): the server sends 10 test USDC to the signed-in wallet.
 export const addFunds = () =>

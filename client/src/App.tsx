@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { W3SSdk } from '@circle-fin/w3s-pw-web-sdk'
 import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
 import ApprovalPanel from './ApprovalPanel'
+import DealActions from './DealActions'
 import PingStatus from './PingStatus'
 import {
   CircleError,
@@ -13,7 +14,9 @@ import {
   listWallets,
   logout,
   prepareApproval,
+  prepareDealAction,
   requestEmailOtp,
+  type DealAction,
   type Me,
 } from './api'
 
@@ -141,19 +144,29 @@ function App() {
   // Step 2: Circle's hosted window collects the OTP.
   const verifyOtp = () => sdkRef.current?.verifyOtp()
 
-  const approveUsdc = async (amount: string) => {
+  const authorizeChallenge = async (challengeId: string) => {
     const sdk = sdkRef.current
-    if (!sdk || !login || !me) throw new Error('Sign in with Circle to approve USDC.')
+    if (!sdk || !login || !me) throw new Error('Sign in with Circle to authorize the transaction.')
 
-    const { challengeId } = await prepareApproval(amount)
     sdk.setAuthentication(login)
     await new Promise<void>((resolve, reject) => {
       sdk.execute(challengeId, (error, result) => {
-        if (error) reject(new Error(error.message || 'Approval challenge failed.'))
+        if (error) reject(new Error(error.message || 'Circle authorization failed.'))
         else if (result?.status === 'COMPLETE') resolve()
-        else reject(new Error('Circle did not complete the approval challenge.'))
+        else reject(new Error('Circle did not complete the authorization challenge.'))
       })
     })
+  }
+
+  const approveUsdc = async (amount: string) => {
+    const { challengeId } = await prepareApproval(amount)
+    await authorizeChallenge(challengeId)
+  }
+
+  const authorizeDealAction = async (action: DealAction) => {
+    const { challengeId, refId } = await prepareDealAction(action)
+    await authorizeChallenge(challengeId)
+    return refId
   }
 
   // Step 3: initialize the user (first time) -> challenge -> user sets PIN -> wallet.
@@ -230,7 +243,12 @@ function App() {
           </p>
           <PingStatus />
           {me.blockchain === 'ARC-TESTNET' && (login ? (
-            <ApprovalPanel key={me.walletId} onApprove={approveUsdc} />
+            <>
+              <ApprovalPanel key={me.walletId} onApprove={approveUsdc} />
+              <DealActions key={`deal-${me.walletId}`} onAuthorize={authorizeDealAction} onConfirmed={() => {
+                void loadBalance().catch(() => say('Transaction confirmed. Could not refresh the wallet balance.', true))
+              }} />
+            </>
           ) : (
             <p>To approve USDC after restoring a session, sign out and verify your email again.</p>
           ))}
