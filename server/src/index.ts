@@ -7,8 +7,10 @@ import {
   createWalletClient,
   defineChain,
   http,
+  isAddress,
   parseAbi,
   parseUnits,
+  zeroAddress,
   type Address,
   type Hex,
 } from 'viem';
@@ -16,6 +18,14 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
+const arcTestnet = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || 'https://rpc.testnet.arc.network'] } },
+});
+const arc = createPublicClient({ chain: arcTestnet, transport: http() });
+const pingAbi = parseAbi(['function last() view returns (uint256)']);
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -26,6 +36,22 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/hello', (_req, res) => {
   res.json({ message: 'hello from settld' });
+});
+
+app.get('/api/ping', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const address = process.env.PING_ADDRESS?.trim();
+  if (!address || !isAddress(address) || address === zeroAddress) {
+    res.status(503).json({ error: 'Configure the Arc Testnet Ping contract address.' });
+    return;
+  }
+
+  try {
+    const last = await arc.readContract({ address, abi: pingAbi, functionName: 'last' });
+    res.json({ last: last.toString() });
+  } catch {
+    res.status(502).json({ error: 'Unable to read the Ping contract.' });
+  }
 });
 
 const CIRCLE = 'https://api.circle.com';
@@ -167,13 +193,6 @@ const TOP_UP_USDC = '10';
 const TOP_UP_COOLDOWN_MS = 30_000;
 const lastTopUp = new Map<string, number>();
 
-const arcTestnet = defineChain({
-  id: 5042002,
-  name: 'Arc Testnet',
-  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ARC_RPC_URL ?? 'https://rpc.testnet.arc.network'] } },
-});
-
 // 9. Send TOP_UP_USDC from the treasury to the caller's own wallet
 app.post('/api/funds/add', async (req, res) => {
   try {
@@ -195,7 +214,6 @@ app.post('/api/funds/add', async (req, res) => {
 
     const account = privateKeyToAccount(key);
     const wallet = createWalletClient({ account, chain: arcTestnet, transport: http() });
-    const pub = createPublicClient({ chain: arcTestnet, transport: http() });
 
     const txHash = await wallet.writeContract({
       address: USDC_ADDRESS as Address,
@@ -203,7 +221,7 @@ app.post('/api/funds/add', async (req, res) => {
       functionName: 'transfer',
       args: [to, parseUnits(TOP_UP_USDC, 6)],
     });
-    await pub.waitForTransactionReceipt({ hash: txHash });
+    await arc.waitForTransactionReceipt({ hash: txHash });
     res.json({ txHash, amount: TOP_UP_USDC, to });
   } catch (e) {
     console.error('funds/add failed:', e);

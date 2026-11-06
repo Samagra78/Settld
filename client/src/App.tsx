@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { W3SSdk } from '@circle-fin/w3s-pw-web-sdk'
 import type { LoginConfigs } from '@circle-fin/w3s-pw-web-sdk/dist/src/types'
+import ApprovalPanel from './ApprovalPanel'
+import PingStatus from './PingStatus'
 import {
   CircleError,
   addFunds,
   getBalances,
   initializeUser,
   listWallets,
+  prepareApproval,
   requestEmailOtp,
   type Wallet,
 } from './api'
@@ -112,6 +115,21 @@ function App() {
   // Step 2: Circle's hosted window collects the OTP.
   const verifyOtp = () => sdkRef.current?.verifyOtp()
 
+  const approveUsdc = async (amount: string) => {
+    const sdk = sdkRef.current
+    if (!sdk || !login || !wallet) throw new Error('Load your wallet before approving USDC.')
+
+    const { challengeId } = await prepareApproval(login.userToken, wallet.id, amount)
+    sdk.setAuthentication(login)
+    await new Promise<void>((resolve, reject) => {
+      sdk.execute(challengeId, (error, result) => {
+        if (error) reject(new Error(error.message || 'Approval challenge failed.'))
+        else if (result?.status === 'COMPLETE') resolve()
+        else reject(new Error('Circle did not complete the approval challenge.'))
+      })
+    })
+  }
+
   // Step 3: initialize the user (first time) -> challenge -> user sets PIN -> wallet.
   const createOrLoadWallet = async () => {
     if (!login) return
@@ -183,6 +201,9 @@ function App() {
           </p>
         </div>
       )}
+
+      {login && wallet && <ApprovalPanel key={wallet.id} onApprove={approveUsdc} />}
+      <PingStatus />
     </main>
   )
 }
