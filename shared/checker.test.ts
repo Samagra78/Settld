@@ -55,6 +55,12 @@ describe("checker", () => {
     expect(r.errors.join(" ")).toContain("circular");
   });
 
+  test("a clause can only depend on an earlier clause (matches deployed contract)", () => {
+    const r = checkDeal([clause(50n, 1), clause(50n)], 100n);
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(" ")).toContain("later clause");
+  });
+
   test("dependency on a missing clause is rejected", () => {
     const r = checkDeal([clause(100n, 3)], 100n);
     expect(r.valid).toBe(false);
