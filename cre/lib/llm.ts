@@ -1,7 +1,7 @@
 // Shared helpers for the AI parts of Settld's CRE workflows (WF1 AI_CHECK and WF3 AI court).
 //
 // - 3 judges from 3 different model families, all on FREE tiers (hackathon-friendly, $0 inference):
-//     0 = Groq (OpenAI gpt-oss-120b), 1 = Google Gemini Flash, 2 = NVIDIA NIM (Mistral Small; free developer credits at build.nvidia.com)
+//     0 = Groq (OpenAI gpt-oss-120b), 1 = Google Gemini Flash, 2 = NVIDIA NIM (Nemotron 3.5 Bolt; free endpoint at build.nvidia.com)
 // - Temperature 0 and JSON-only answers, so the output is a small structured verdict.
 // - Guardrails: evidence is wrapped and labelled as DATA; the model is told to ignore instructions in it.
 // - Replay mode: canned answers instead of live calls, for a deterministic demo or when a free API rate-limits.
@@ -37,7 +37,7 @@ export type Judge = { name: string; provider: Provider; model: string };
 export const DEFAULT_JUDGES: Judge[] = [
   { name: "GPT-OSS (Groq)", provider: "groq", model: "openai/gpt-oss-120b" },
   { name: "Gemini", provider: "gemini", model: "gemini-3.5-flash-lite" },
-  { name: "Mistral (NVIDIA)", provider: "nvidia", model: "mistralai/mistral-small-24b-instruct" },
+  { name: "Nemotron (NVIDIA)", provider: "nvidia", model: "nvidia/nemotron-3.5-bolt-e4b" },
 ];
 
 // Secret ids (cre/secrets.yaml) per provider
