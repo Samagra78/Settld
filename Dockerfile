@@ -8,8 +8,9 @@ RUN apt-get update \
 
 # Bun (CRE workflows are TypeScript compiled with bun)
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.4"
-# Chainlink CRE CLI (official installer, verifies the binary signature); authenticates with CRE_API_KEY at runtime
-RUN curl -sSL https://cre.chain.link/install.sh | bash
+# Chainlink CRE CLI (official installer, verifies the binary signature); authenticates with CRE_API_KEY at runtime.
+# Optional: only needed when the host also runs the automation (AUTOMATION_ENABLED=true). Plan B hosts the API only.
+RUN (curl -sSL https://cre.chain.link/install.sh | bash) || echo "CRE CLI not installed — fine for an API-only host"
 ENV PATH="/root/.bun/bin:/root/.cre/bin:${PATH}"
 
 WORKDIR /app
