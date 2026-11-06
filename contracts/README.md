@@ -8,6 +8,17 @@ npm test        # 25 tests, uses ../shared/fixtures (deal1.json + reports.json)
 npm run abi     # writes ../shared/abi/ClauseEscrow.json
 ```
 
+## What is actually deployed
+The live contract (`shared/addresses.json`) was **generated and deployed in Arc Studio** from the same spec; the files in `src/` are the tested reference draft, not what is on chain. Use **`shared/abi/ClauseEscrow.json`** (the deployed ABI). `shared/abi/ClauseEscrow.reference.json` is the draft's ABI and does not match.
+
+Differences to know about (deployed vs the table below):
+- Getter `usdc()` (not `token()`); forwarder functions are `getForwarderAddress` / `setForwarderAddress`; `setExpectedWorkflowName` takes a `string`.
+- Constants are `RELEASE_WINDOW` (120) and `SUBMITTED_TIMEOUT` (86400); status numbers are exposed as `Pending()`, `Submitted()`, ... `Refunded()`.
+- `dependsOn` must be a strictly earlier clause index. `DealCertified(dealId)` has no `specHash`.
+- Custom error names differ (e.g. `ReleaseWindowActive`, `RefundNotAllowed`, `InvalidReportKind`, `NotExpired`, `DependencyNotReleased`).
+- Owner is Studio's shared deployer wallet, so the forwarder and workflow checks cannot be changed on this deployment. Deploy anew (with your own wallet) before relying on the production forwarder.
+- Known and accepted for the testnet demo: the mock forwarder does no sender checks, so anyone could forge reports; and `release` / `refund` pay directly, so a USDC-blocked creator or brand would stall that clause.
+
 ## Files
 | File | What |
 |---|---|
