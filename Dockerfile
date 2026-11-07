@@ -21,7 +21,7 @@ COPY server ./server
 COPY client ./client
 
 RUN cd shared && (bun install --frozen-lockfile || bun install)
-RUN for wf in cre/wf0-certify cre/wf1-verify cre/wf3-court cre/ping; do (cd "$wf" && (bun install --frozen-lockfile || bun install)); done
+RUN for wf in cre/wf0-certify cre/wf1-verify cre/wf3-court; do (cd "$wf" && (bun install --frozen-lockfile || bun install)); done
 RUN cd server && (npm ci --omit=dev || npm install --omit=dev) && npm install --no-save tsx
 # the website: built once here, served by the API server from client/dist (same address, so the login cookie is first-party)
 # the Circle app id is public (it ships in the site's JavaScript anyway)

@@ -37,7 +37,6 @@ import { registerArbitrationRoutes } from './arbitration.js';
 import { deleteSession, getState, initStore, loadSession, recordEvent, saveSession, setState, touchSession, type StoredSession } from './store.js';
 import { registerMonitor } from './monitor.js';
 import { registerExtractRoutes } from './extract.js';
-import { registerDevTools } from './devtools.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -818,22 +817,6 @@ const arcTestnet = defineChain({
   rpcUrls: { default: { http: [process.env.ARC_RPC_URL?.trim() || addresses.rpc] } },
 });
 const arc = createPublicClient({ chain: arcTestnet, transport: http(undefined, { retryCount: 8, retryDelay: 1500 }) });
-const pingAbi = parseAbi(['function lastNumber() view returns (uint256)']);
-
-app.get('/api/ping', requireWallet, async (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  const address = addresses.ping.trim();
-  if (!isAddress(address) || address === zeroAddress) {
-    return res.status(503).json({ error: 'Set the Arc Testnet Ping contract address in shared/addresses.json.' });
-  }
-
-  try {
-    const last = await arc.readContract({ address, abi: pingAbi, functionName: 'lastNumber' });
-    res.json({ last: last.toString() });
-  } catch {
-    res.status(502).json({ error: 'Unable to read the Ping contract.' });
-  }
-});
 
 if (process.env.NODE_ENV === 'development') {
   app.get('/api/wallet/:role', async (req, res) => {
@@ -943,7 +926,6 @@ registerAutomation(app, {
   archiveFromBlock: shared.clauseEscrow?.deployBlock ? BigInt(shared.clauseEscrow.deployBlock) : undefined,
 });
 registerExtractRoutes(app, requireWallet);
-registerDevTools(app, { arc: arc as unknown as PublicClient, chain: arcTestnet, escrow: ESCROW_ADDRESS, escrowAbi });
 registerMonitor(app, { escrow: ESCROW_ADDRESS, court: shared.aiCourt?.address, registry: shared.jurorRegistry?.address }, addresses.explorer);
 // World ID + JurorRegistry routes (server/src/worldid.ts, docs/INTERFACES.md)
 registerWorldIdRoutes(app, {

@@ -11,5 +11,4 @@ design
 docs
 scripts
 .git
-.claude
 !docker-entrypoint.sh

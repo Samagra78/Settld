@@ -3,11 +3,12 @@
 ## How we run it (our CRE account has no API keys → "Plan B")
 | Where | What runs | Settings |
 |---|---|---|
-| **Host (Railway)** | API, World ID, arbitrator dashboard, court data, read-only `/monitor` — always online | `AUTOMATION_ENABLED=false`, `MONGODB_URI` (Atlas), `NODE_ENV=production` |
+| **Host (Railway)** | Website, API, World ID, arbitrator dashboard, court data, read-only `/monitor` — always online | `AUTOMATION_ENABLED=false`, `MONGODB_URI` (Atlas), `NODE_ENV=production` |
 | **Laptop** (`npm run dev` in `server/`) | watcher + keeper: runs the Chainlink CRE workflows (`cre` is logged in here) and settles payouts | `AUTOMATION_ENABLED=true`, **same** `MONGODB_URI` |
 
 Both use the same MongoDB Atlas database, so everything the laptop's automation does (certificates, AI court rounds,
-verdicts, payouts, transcripts) shows up on the hosted API immediately. `bun run host-env` (in `scripts/`) writes the
+verdicts, payouts, transcripts) shows up on the hosted API immediately. The laptop also publishes its live status there,
+so the website's "Working now" panel shows what the automation is doing. `bun run host-env` (in `scripts/`) writes the
 host's settings to `.env.deploy` with automation off. If CRE API keys become available, set `CRE_API_KEY` on the host
 and run `HOST_AUTOMATION=true bun run host-env` to move the automation to the host too.
 
@@ -50,4 +51,6 @@ host's "raw environment" editor.
   small log ranges, so the watcher reads 90 blocks at a time (`LOG_CHUNK_BLOCKS`).
 - Our CRE access is simulation-only, so workflows run as `cre workflow simulate … --broadcast` inside the container
   (real transactions through Chainlink's mock forwarder on Arc testnet).
-- Developer pages (`/worldid-test`, `/circle-test`) and the test helpers are not served in production.
+- The developer page `/worldid-test` and the test helpers are not served in production.
+- The website is built into the same Docker image (`client/dist`) and served by the API server, so the site and `/api` share
+  one address and the login cookie is first-party.
