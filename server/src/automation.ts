@@ -25,6 +25,7 @@ import {
   type Abi, type AbiEvent, type Address, type Chain, type Hex, type PublicClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { getState as getStoreState, setState as setStoreState } from './store.js';
 
 const runFile = promisify(execFile);
 const env = (k: string) => process.env[k]?.trim() ?? '';
@@ -155,17 +156,33 @@ export function registerAutomation(app: Express, d: AutomationDeps) {
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
   };
 
-  app.get('/api/automation/status', (_req, res) => {
-    res.set('Cache-Control', 'no-store').json({
-      enabled,
-      contracts: { escrow: escrow ?? null, court: court ?? null, registry: registry ?? null },
-      lastBlock: state.lastBlock || null,
-      running: running?.label ?? null,
-      queued: queue.map((j) => j.label),
-      openCases: state.cases,
-      openPanels: state.panels,
-      recent,
-    });
+  const status = () => ({
+    enabled,
+    contracts: { escrow: escrow ?? null, court: court ?? null, registry: registry ?? null },
+    lastBlock: state.lastBlock || null,
+    running: running?.label ?? null,
+    queued: queue.map((j) => j.label),
+    openCases: state.cases,
+    openPanels: state.panels,
+    recent,
+  });
+
+  // The automation runs on one machine (the laptop) while the website is served elsewhere (Railway).
+  // The running host publishes its live status to the shared store; a host with automation off shows that instead.
+  const LIVE_KEY = 'automation_live';
+  if (enabled) {
+    setInterval(() => {
+      void setStoreState(LIVE_KEY, { ...status(), at: Date.now() }).catch(() => {});
+    }, 4000).unref();
+  }
+
+  app.get('/api/automation/status', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (enabled) return res.json({ ...status(), source: 'this server' });
+    const live = await getStoreState<ReturnType<typeof status> & { at: number }>(LIVE_KEY).catch(() => null);
+    // fresh within 30 s: the automation host is up
+    if (live && Date.now() - live.at < 30_000) return res.json({ ...live, source: 'automation host' });
+    res.json({ ...status(), source: 'none', lastSeen: live?.at ?? null });
   });
 
   if (!enabled) {

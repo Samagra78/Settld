@@ -33,6 +33,8 @@ export const api = {
       caseId, aiVerdict: 100, appealDeadline: null, canAppeal: true, appealFeeUnits: String(F.CASE_META.appealFee * 1e6),
       appealed: false, finalized: false, finalBand: null, byHumans: false,
     }),
+  // public counts from the server; no made-up fallback (null = not loaded)
+  arbitratorStats: () => liveOr<{ verifiedHumans: number | null; arbitrators: number | null; openPanels: number | null; casesDecided: number | null }>('/arbitrators/stats', { verifiedHumans: null, arbitrators: null, openPanels: null, casesDecided: null }),
   arbitratorMe: () => liveOr<ArbitratorMe>('/arbitrator/me', { wallet: '', verified: false, arbitrator: false, canAccessCourt: false }),
   arbitratorDashboard: () => liveOr<ArbitratorDashboard>('/arbitrator/dashboard', F.ARB_DASHBOARD),
   arbitratorCases: () => liveOr<{ cases: OpenCase[] }>('/arbitrator/cases', { cases: F.OPEN_CASES }),

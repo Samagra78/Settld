@@ -8,7 +8,7 @@ import { Icon } from '../components/Icon'
 import { JurySim } from '../components/JurySim'
 import { StatTile } from '../components/StatTile'
 import { useFlow } from '../components/flow/context'
-import { ARB_POOL, CASE_META, JUDGES, JURY_INFO } from '../data/fixtures'
+import { CASE_META, JUDGES, JURY_INFO } from '../data/fixtures'
 import { api, units, useLive } from '../data/live'
 import { commitVote, getState, pickBand, revealVote, signInArbitrator, signInWithWorldId, signOutArbitrator, useSettld } from '../data/store'
 import { WorldIdWidget } from '../components/WorldIdWidget'
@@ -32,6 +32,7 @@ const BANDS: [Band, string][] = [
 function Gate() {
   const { flow, toast } = useFlow()
   const [mode, setMode] = useState<'signin' | 'signup' | 'party' | null>(null)
+  const pool = useLive(api.arbitratorStats)
 
   // World ID is tied to the Settld wallet, so an email sign-in comes first
   const start = (m: 'signin' | 'signup' | 'party') => {
@@ -98,8 +99,10 @@ function Gate() {
       <Card tone="dark" className="grid" style={{ gap: 12 }}>
         <span className="bit" style={{ fontSize: 18 }}>The arbitrator pool</span>
         <div className="grid g2" style={{ gap: 14 }}>
-          <div><div className="k" style={{ color: 'var(--beige-70)' }}>Verified humans</div><div className="num" style={{ fontSize: 28 }}><CountUp value={ARB_POOL.verified} /></div></div>
-          <div><div className="k" style={{ color: 'var(--beige-70)' }}>Active this week</div><div className="num" style={{ fontSize: 28 }}><CountUp value={ARB_POOL.active} /></div></div>
+          {/* real counts from the server (World ID-verified people, arbitrators on JurorRegistry, open appeals) */}
+          {([['Verified humans', pool?.data.verifiedHumans], ['Arbitrators', pool?.data.arbitrators], ['Open appeals', pool?.data.openPanels], ['Cases decided', pool?.data.casesDecided]] as const).map(([label, v]) => (
+            <div key={label}><div className="k" style={{ color: 'var(--beige-70)' }}>{label}</div><div className="num" style={{ fontSize: 28 }}>{typeof v === 'number' ? <CountUp value={v} /> : '–'}</div></div>
+          ))}
         </div>
         <p className="k" style={{ color: 'var(--beige-70)' }}>The first three eligible arbitrators to vote form the panel. Votes stay hidden until all three reveal. Voting against the majority twice suspends the person, not just the wallet.</p>
       </Card>
