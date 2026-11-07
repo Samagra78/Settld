@@ -16,19 +16,39 @@ export const Status = {
   Pending: 0,   // waiting for the creator to submit
   Submitted: 1, // submitted, waiting for Chainlink to verify
   Verified: 2,  // verified, dispute window running
-  Failed: 3,    // check failed or deadline missed
-  Disputed: 4,  // frozen, waiting for the jury
-  Released: 5,  // paid to the creator (final)
-  Refunded: 6,  // returned to the brand (final)
-  // Not a stored contract status: "Verified and the dispute window has closed".
-  // The checker needs it because a dispute is only possible inside the window.
-  WindowClosed: 7,
+  Failed: 3,    // check failed or deadline missed, dispute window running
+  Disputed: 4,  // frozen, waiting for the AI court (and the human arbitrators if appealed)
+  Released: 5,  // paid to the freelancer, fully or as a court split with share > 0 (final)
+  Refunded: 6,  // returned to the client, or a court split with share 0 (final)
+  // Not stored contract statuses: "the dispute window has closed".
+  // The checker needs them because a dispute is only possible inside the window (V2:
+  // either party can dispute a Verified OR a Failed verdict, and refunds wait for the window too).
+  WindowClosed: 7,       // Verified + window closed
+  FailedWindowClosed: 8, // Failed + window closed
 } as const;
 type StatusValue = (typeof Status)[keyof typeof Status];
 
 const STATUS_NAME: Record<number, string> = {
   0: "Pending", 1: "Submitted", 2: "Verified", 3: "Failed",
   4: "Disputed", 5: "Released", 6: "Refunded", 7: "Verified (window closed)",
+  8: "Failed (window closed)",
+};
+
+// V2 check types (docs/INTERFACES.md). 2 STAYS_PUBLIC and 3 QUALITY are reserved, not supported yet.
+export const CheckType = {
+  POSTED_BY: 0, DESC_CONTAINS: 1, STAYS_PUBLIC: 2, QUALITY: 3,
+  URL_LIVE: 4, URL_CONTAINS: 5, GITHUB_MERGED: 6, AI_CHECK: 7,
+} as const;
+export const SUPPORTED_CHECKS: readonly number[] = [0, 1, 4, 5, 6, 7];
+// POSTED_BY needs the channel: without it any public video would pass
+const NEEDS_PARAM: readonly number[] = [CheckType.POSTED_BY, CheckType.DESC_CONTAINS, CheckType.URL_CONTAINS, CheckType.AI_CHECK];
+export const CHECK_NAME: Record<number, string> = {
+  0: "YouTube: posted by the freelancer",
+  1: "YouTube: description contains text",
+  4: "Link is live",
+  5: "Page contains text",
+  6: "GitHub pull request merged",
+  7: "AI check against the brief (3 models)",
 };
 
 export const NO_DEPENDENCY = 255;
@@ -45,10 +65,21 @@ export const DEFAULT_OPTIONS: CheckerOptions = {
   cascadeRefundOnDependencyFailure: true,
 };
 
+export type ClauseOutcome = {
+  clause: number;
+  dependsOn: number | null;
+  check: string;
+  canBePaid: boolean;      // some path pays (all or part of) this clause to the freelancer
+  canBeRefunded: boolean;  // some path refunds this clause to the client
+};
+
 export type CheckResult = {
   valid: boolean;
   errors: string[];        // plain-English reasons (empty when valid)
   statesExplored: number;
+  // For the "No deadlock" certificate shown to both parties before anyone signs
+  summary: string;
+  outcomes: ClauseOutcome[];
 };
 
 const isFinal = (s: number) => s === Status.Released || s === Status.Refunded;
@@ -82,7 +113,7 @@ function nextStates(
         move(i, Status.Failed);         // Chainlink: check failed (or report timeout)
         break;
       case Status.Verified:
-        move(i, Status.Disputed);       // brand disputes inside the window
+        move(i, Status.Disputed);       // either party disputes inside the window
         move(i, Status.WindowClosed);   // window passes with no dispute
         break;
       case Status.WindowClosed:
@@ -91,15 +122,20 @@ function nextStates(
           move(i, Status.Released);
         }
         break;
+      case Status.Failed:
+        move(i, Status.Disputed);           // either party disputes inside the window
+        move(i, Status.FailedWindowClosed); // window passes with no dispute
+        break;
+      case Status.FailedWindowClosed:
+        move(i, Status.Refunded);       // onFail = Refund (waits for the window in V2)
+        break;
       case Status.Disputed:
-        // jury decides; release still needs the dependency released
+        // court verdict: share > 0 → Released (still needs the dependency released);
+        // share 0 → Refunded. A split counts as Released for dependents.
         if (depStatus === undefined || depStatus === Status.Released) {
           move(i, Status.Released);
         }
         move(i, Status.Refunded);
-        break;
-      case Status.Failed:
-        move(i, Status.Refunded);       // onFail = Refund
         break;
     }
 
@@ -135,10 +171,22 @@ function staticErrors(terms: ClauseTerms[], total: bigint): string[] {
 
   terms.forEach((t, i) => {
     if (t.amount <= 0n) errors.push(`C${i} has no money assigned to it.`);
+    if (!SUPPORTED_CHECKS.includes(t.checkType)) {
+      errors.push(`C${i} uses check type ${t.checkType}, which Chainlink can't verify yet.`);
+    } else if (NEEDS_PARAM.includes(t.checkType) && t.param.trim() === "") {
+      errors.push(t.checkType === CheckType.POSTED_BY
+        ? `C${i} (${CHECK_NAME[t.checkType]}) needs the freelancer's YouTube channel (@handle or channel link), or anyone's video would pass.`
+        : `C${i} (${CHECK_NAME[t.checkType]}) needs the text or criteria to check for.`);
+    }
     if (t.dependsOn !== NO_DEPENDENCY) {
       if (t.dependsOn === i) errors.push(`C${i} depends on itself.`);
       else if (t.dependsOn >= terms.length) {
         errors.push(`C${i} depends on C${t.dependsOn}, which does not exist.`);
+      } else if (t.dependsOn > i) {
+        // the deployed ClauseEscrow only accepts dependencies on EARLIER clauses
+        errors.push(
+          `C${i} depends on C${t.dependsOn}, a later clause. A clause can only depend on an earlier one.`
+        );
       }
     }
   });
@@ -170,7 +218,9 @@ export function checkDeal(
 ): CheckResult {
   const errors = staticErrors(terms, total);
   // don't explore a structurally broken deal
-  if (errors.length > 0) return { valid: false, errors, statesExplored: 0 };
+  if (errors.length > 0) {
+    return { valid: false, errors, statesExplored: 0, summary: `Not safe to sign: ${errors[0]}`, outcomes: [] };
+  }
 
   // 1) explore every reachable state from "all Pending"
   const start = terms.map(() => Status.Pending) as StatusValue[];
@@ -248,5 +298,27 @@ export function checkDeal(
     );
   }
 
-  return { valid: errors.length === 0, errors, statesExplored: reachable.size };
+  // 4) per-clause outcomes for the certificate diagram
+  const outcomes: ClauseOutcome[] = terms.map((t, i) => {
+    let canBePaid = false, canBeRefunded = false;
+    for (const s of reachable.values()) {
+      if (s[i] === Status.Released) canBePaid = true;
+      if (s[i] === Status.Refunded) canBeRefunded = true;
+    }
+    return {
+      clause: i,
+      dependsOn: t.dependsOn === NO_DEPENDENCY ? null : t.dependsOn,
+      check: CHECK_NAME[t.checkType] ?? `type ${t.checkType}`,
+      canBePaid,
+      canBeRefunded,
+    };
+  });
+
+  const valid = errors.length === 0;
+  const summary = valid
+    ? `No deadlock: checked ${reachable.size} possible states. Every path ends with each clause paid to the ` +
+      `freelancer or refunded to the client, including disputes and appeals. No money can get stuck.`
+    : `Not safe to sign: ${errors[0]}`;
+
+  return { valid, errors, statesExplored: reachable.size, summary, outcomes };
 }

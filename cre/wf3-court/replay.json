@@ -1,0 +1,20 @@
+{
+  "_about": "Scripted debate for the demo (replay mode). Same answers every time, no API keys needed. Clause: landing page with the client's logo and a working signup form. Dispute: the client says the signup form is broken.",
+  "rounds": [
+    [
+      { "band": 0, "statement": "The page is live and shows the client's logo, but the signup form sends no confirmation email. I am not convinced the promise was fully kept, so refund the client.", "cited": [0, 1], "wantsExtend": false, "isFinal": false },
+      { "band": 100, "statement": "The clause asks for a working signup form. The submitted page has a form that accepts and stores entries. Confirmation emails are not in the terms, so the promise is kept: pay the freelancer.", "cited": [0, 1], "wantsExtend": false, "isFinal": false },
+      { "band": 0, "statement": "The client reports the signup form is broken. A broken form means the main deliverable failed, so the client should be refunded.", "cited": [2], "wantsExtend": false, "isFinal": false }
+    ],
+    [
+      { "band": 100, "statement": "I agree with Gemini: the terms never mention emails. The form works as described in evidence 0, so I change my vote to pay the freelancer.", "cited": [0], "wantsExtend": true, "isFinal": false },
+      { "band": 100, "statement": "The dispute reason says broken, but the page in evidence 1 shows the form submitting successfully. Pay the freelancer. I need a little more room to address the client's point fairly.", "cited": [1, 2], "wantsExtend": true, "isFinal": false },
+      { "band": 0, "statement": "Looking at evidence 1 again, the form does submit. I still think the missing confirmation hurts the client, so I keep my vote for a refund.", "cited": [1, 2], "wantsExtend": false, "isFinal": false }
+    ],
+    [
+      { "band": 100, "statement": "Final: the clause is met; emails were never part of it. Pay the freelancer.", "cited": [0, 1], "wantsExtend": false, "isFinal": true },
+      { "band": 100, "statement": "Final: the client's complaint is about emails, which are outside the clause. The form itself works. Pay the freelancer.", "cited": [0, 1, 2], "wantsExtend": false, "isFinal": true },
+      { "band": 0, "statement": "Final: I keep my vote to refund the client. The majority may differ, and that is fine.", "cited": [1, 2], "wantsExtend": false, "isFinal": true }
+    ]
+  ]
+}

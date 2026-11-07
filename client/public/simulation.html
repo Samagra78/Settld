@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settld Simulation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Jersey+10&display=swap">
+<style>
+  :root{--ink:#1A1A1A;--blue:#2038E2;--ciel:#007BFF;--orange:#FF5A00;--beige:#FFE6D0;--white:#FFFFFF}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#0f0f0f;color:var(--white);font-family:'Inter Tight',system-ui,sans-serif}
+  .stage{position:fixed;inset:0 0 64px 0;display:flex;align-items:center;justify-content:center}
+  #out{width:100%;height:100%;object-fit:contain;background:#0f0f0f;display:block}
+  .ctl{position:fixed;left:0;right:0;bottom:0;height:64px;display:flex;gap:12px;align-items:center;padding:0 16px;background:var(--ink);border-top:1px solid rgba(255,230,208,.18)}
+  .ctl button{height:40px;padding:0 14px;border-radius:6px;border:1px solid rgba(255,230,208,.4);background:none;color:var(--white);font:inherit;cursor:pointer}
+  .ctl button.rec{background:var(--orange);border-color:var(--orange);color:var(--ink)}
+  .ctl input[type=range]{flex:1;accent-color:var(--orange)}
+  .ctl .t{font-family:'Jersey 10',monospace;font-size:24px;min-width:110px;text-align:right}
+  .ctl .msg{font-size:13px;color:rgba(255,230,208,.72)}
+</style>
+</head>
+<body>
+<div class="stage"><canvas id="out" width="1920" height="1080"></canvas></div>
+<div class="ctl">
+  <button id="play">Pause</button>
+  <button id="restart">Restart</button>
+  <input id="scrub" type="range" min="0" max="1000" value="0">
+  <span class="t" id="time">0.0 s</span>
+  <button id="rec" class="rec">Record 1080p video</button>
+  <span class="msg" id="msg">Space: play / pause · ← →: step 1 s</span>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script>
+(async function () {
+'use strict';
+const W = 1920, H = 1080, END = 54.5;
+const C = { ink: 0x1A1A1A, blue: 0x2038E2, ciel: 0x007BFF, orange: 0xFF5A00, beige: 0xFFE6D0, white: 0xFFFFFF, red: 0xE5251B, grey: 0x555555 };
+try { await Promise.all([document.fonts.load('64px "Jersey 10"'), document.fonts.load('500 40px "Inter Tight"'), document.fonts.load('600 40px "Inter Tight"')]); } catch (e) {}
+
+// ---------- helpers ----------
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const cl = (x) => Math.max(0, Math.min(1, x));
+const ss = (a, b, t) => { const x = cl((t - a) / (b - a)); return x * x * (3 - 2 * x); };
+const win = (t, a, b, f = 0.35) => Math.min(ss(a, a + f, t), 1 - ss(b - f, b, t)); // fade in at a, out at b
+const lerp = (a, b, k) => a + (b - a) * k;
+const lv = (a, b, k) => new THREE.Vector3().lerpVectors(a, b, k);
+const arc = (a, b, k, h) => { const p = lv(a, b, k); p.y += Math.sin(Math.PI * k) * h; return p; };
+const UP = V(0, 1, 0);
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+renderer.outputEncoding = THREE.sRGBEncoding;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(C.ink);
+scene.fog = new THREE.Fog(C.ink, 26, 62);
+const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a2a, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9); sun.position.set(6, 14, 10); scene.add(sun);
+const rim = new THREE.DirectionalLight(0x6f86ff, 0.45); rim.position.set(-10, 6, -12); scene.add(rim);
+
+const mat = (color, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.55, metalness: 0.08, transparent: true }, o));
+function mesh(geo, m, p) { const x = new THREE.Mesh(geo, m); if (p) x.position.copy(p); scene.add(x); return x; }
+function setOp(obj, a) {
+  obj.visible = a > 0.004;
+  obj.traverse((o) => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) { if (m.userData.base === undefined) m.userData.base = m.opacity; m.opacity = a * m.userData.base; } });
+}
+function setBeam(m, a, b) {
+  const d = new THREE.Vector3().subVectors(b, a); const L = Math.max(d.length(), 0.0001);
+  m.position.copy(a).addScaledVector(d, 0.5); m.scale.set(1, L, 1); m.quaternion.setFromUnitVectors(UP, d.normalize());
+}
+function beam(color, r = 0.05) { const m = mesh(new THREE.CylinderGeometry(r, r, 1, 10, 1, true), new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false })); m.visible = false; return m; }
+
+function makeLabel(text, o = {}) {
+  const px = o.px || 64, bit = o.font !== 'sans';
+  const f = bit ? `${px}px "Jersey 10"` : `500 ${px}px "Inter Tight"`;
+  const c = document.createElement('canvas'); const ctx = c.getContext('2d'); ctx.font = f;
+  const w = Math.ceil(ctx.measureText(text).width + px * 0.9), h = Math.ceil(px * 1.3);
+  c.width = w; c.height = h; ctx.font = f;
+  if (o.bg !== null) { ctx.fillStyle = o.bg || '#1A1A1A'; ctx.beginPath(); ctx.roundRect(0, 0, w, h, px * 0.16); ctx.fill(); }
+  if (o.border) { ctx.strokeStyle = o.border; ctx.lineWidth = px * 0.08; ctx.beginPath(); ctx.roundRect(px * 0.04, px * 0.04, w - px * 0.08, h - px * 0.08, px * 0.14); ctx.stroke(); }
+  ctx.fillStyle = o.fg || '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(bit ? text.toUpperCase() : text, w / 2, h / 2 + px * 0.05);
+  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  const sh = o.h || 0.5; s.scale.set(sh * w / h, sh, 1); s.renderOrder = 20; s.visible = false; scene.add(s); return s;
+}
+function lab(s, p, a) { s.position.copy(p); s.material.opacity = a; s.visible = a > 0.004; }
+
+// ---------- world ----------
+const floor = mesh(new THREE.PlaneGeometry(200, 200), mat(0x151515, { transparent: false, roughness: 0.95 }));
+floor.rotation.x = -Math.PI / 2;
+const grid = new THREE.GridHelper(120, 120, C.beige, C.beige); grid.material.transparent = true; grid.material.opacity = 0.05; grid.position.y = 0.01; scene.add(grid);
+
+// Arc vault
+const vault = new THREE.Group(); scene.add(vault);
+const vBase = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.6, 3), mat(0x232323, { transparent: false })); vBase.position.y = 0.3; vault.add(vBase);
+const vEdge = new THREE.Mesh(new THREE.BoxGeometry(7.9, 0.06, 3.1), new THREE.MeshBasicMaterial({ color: C.ciel })); vEdge.position.y = 0.62; vault.add(vEdge);
+const vaultLabel = makeLabel('Arc · ClauseEscrow', { px: 56, h: 0.42, fg: '#FFE6D0', bg: '#1A1A1A', border: '#007BFF' });
+const SLOT_X = [-2.7, -0.9, 0.9, 2.7];
+const slotPos = (i) => V(SLOT_X[i], 0.88, 0);
+const slotLabels = SLOT_X.map((x, i) => makeLabel('0' + (i + 1), { px: 48, h: 0.34, bg: null, fg: '#FFE6D0' }));
+
+// people
+function person(color) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.9, 6, 16), mat(color)); body.position.y = 0.9; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 24, 16), mat(color)); head.position.y = 2.05; g.add(head);
+  scene.add(g); return g;
+}
+const CLIENT_P = V(-8, 0, 1.6), FREE_P = V(8, 0, 1.6);
+const client = person(C.beige); client.position.copy(CLIENT_P);
+const free = person(C.orange); free.position.copy(FREE_P);
+const clientLabel = makeLabel('Client', { px: 52, h: 0.42 });
+const freeLabel = makeLabel('Freelancer', { px: 52, h: 0.42 });
+const freeGain = makeLabel('+750 USDC', { px: 56, h: 0.46, bg: '#FF5A00', fg: '#1A1A1A' });
+const freeGain2 = makeLabel('+80% of clause 01', { px: 52, h: 0.75, bg: '#FF5A00', fg: '#1A1A1A' });
+const clientGain = makeLabel('20% back', { px: 52, h: 0.75, bg: '#FFE6D0', fg: '#1A1A1A' });
+
+// contract document + two extraction models
+const DOC = V(-5.2, 3.4, -0.6);
+const doc = mesh(new THREE.BoxGeometry(2.6, 3.4, 0.06), mat(C.white, { roughness: 0.8 }), DOC);
+const docLines = [];
+for (let k = 0; k < 6; k++) {
+  const l = mesh(new THREE.BoxGeometry(k === 5 ? 1.3 : 2.0, 0.13, 0.03), mat(C.ink), V(DOC.x - (k === 5 ? 0.35 : 0), DOC.y + 1.15 - k * 0.46, DOC.z + 0.05));
+  docLines.push(l);
+}
+const docTitle = makeLabel('Plain-English contract', { px: 44, h: 0.34, font: 'sans', bg: '#1A1A1A', fg: '#FFE6D0' });
+const scan = mesh(new THREE.BoxGeometry(2.7, 0.05, 0.12), new THREE.MeshBasicMaterial({ color: C.ciel, transparent: true }));
+const exA = mesh(new THREE.SphereGeometry(0.3, 24, 16), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.6 }));
+const exB = mesh(new THREE.SphereGeometry(0.3, 24, 16), mat(C.beige, { emissive: C.beige, emissiveIntensity: 0.4 }));
+const exALabel = makeLabel('Gemini', { px: 40, h: 0.3, bg: null, fg: '#007BFF' });
+const exBLabel = makeLabel('gpt-oss', { px: 40, h: 0.3, bg: null, fg: '#FFE6D0' });
+const vagueLabel = makeLabel('Vague · flagged', { px: 40, h: 0.32, bg: '#FF5A00', fg: '#1A1A1A' });
+const skipLabel = makeLabel('Not a task · skipped', { px: 40, h: 0.32, bg: '#333333', fg: '#FFE6D0' });
+const amountLabel = makeLabel('People set the amounts', { px: 44, h: 0.36, font: 'sans', bg: '#2038E2', fg: '#FFFFFF' });
+
+// clause blocks
+const CL_COL = { pending: new THREE.Color(C.white), verified: new THREE.Color(C.blue), paid: new THREE.Color(0x2e2e2e), frozen: new THREE.Color(C.orange) };
+const blocks = [0, 1, 2, 3].map(() => mesh(new THREE.BoxGeometry(1.25, 0.5, 1.25), mat(C.white)));
+const blockTag = [0, 1, 2, 3].map(() => makeLabel('Paid', { px: 40, h: 0.3, bg: '#1A1A1A', fg: '#FFE6D0', border: '#FFE6D0' }));
+const frozenTag = makeLabel('Disputed · frozen', { px: 44, h: 0.36, bg: '#FF5A00', fg: '#1A1A1A' });
+const settledTag = makeLabel('Settled', { px: 44, h: 0.6, bg: '#1A1A1A', fg: '#FFE6D0', border: '#FFE6D0' });
+
+// coins: 5 per clause
+const coinGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.11, 40);
+function coinMesh(side, face) { return mesh(coinGeo, [mat(side, { metalness: 0.3 }), mat(face, { metalness: 0.3 }), mat(face, { metalness: 0.3 })]); }
+const coins = []; for (let i = 0; i < 4; i++) for (let j = 0; j < 5; j++) coins.push({ i, j, m: coinMesh(C.blue, C.ciel) });
+const usdcLabel = makeLabel('USDC locked', { px: 48, h: 0.38, bg: '#007BFF', fg: '#1A1A1A' });
+
+// Chainlink nodes
+const NODE_C = V(0, 4.8, 0);
+const nodes = [0, 1, 2, 3].map((i) => {
+  const a = Math.PI / 4 + i * Math.PI / 2; const p = V(Math.cos(a) * 4.3, 4.8, Math.sin(a) * 2.6);
+  const g = new THREE.Group(); g.position.copy(p); scene.add(g);
+  const hex = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.32, 6), mat(C.blue, { emissive: C.blue, emissiveIntensity: 0.35 })); g.add(hex);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.035, 8, 6), new THREE.MeshBasicMaterial({ color: C.ciel, transparent: true })); ring.rotation.x = Math.PI / 2; g.add(ring);
+  const cells = []; for (let k = 0; k < 16; k++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.13), mat(0x333333)); c.position.set(-0.27 + (k % 4) * 0.18, 0.55 + Math.floor(k / 4) * 0.18, 0); g.add(c); cells.push(c); }
+  const llms = [C.beige, C.ciel, C.orange].map((col) => { const o = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), mat(col, { emissive: col, emissiveIntensity: 0.6 })); g.add(o); return o; });
+  return { g, p, hex, ring, cells, llms, down: beam(C.ciel, 0.04), check: makeLabel('✓', { px: 56, h: 0.4, bg: '#007BFF', fg: '#1A1A1A', font: 'sans' }), toCourt: beam(C.ciel, 0.03) };
+});
+const donLabel = makeLabel('Chainlink nodes', { px: 52, h: 0.4, bg: '#2038E2', fg: '#FFFFFF' });
+const llmNodeLabel = makeLabel('3 AI models on every node', { px: 48, h: 0.38, bg: '#2038E2', fg: '#FFFFFF' });
+const cert = mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.12, 48), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.4 }));
+cert.rotation.x = Math.PI / 2;
+const certLabel = makeLabel('No deadlock · certified', { px: 52, h: 0.42, bg: '#007BFF', fg: '#1A1A1A' });
+const packets = [1, 2, 3].map(() => mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.5 })));
+const evLabel = makeLabel('Links submitted', { px: 44, h: 0.34, bg: '#1A1A1A', fg: '#FFE6D0', border: '#007BFF' });
+const verifyBeams = [1, 2, 3].map(() => nodes.map(() => beam(C.ciel, 0.03)));
+
+// Chainlink CRE emblem: a turning hexagon ring at the centre of the node ring
+const cre = new THREE.Group(); scene.add(cre);
+const creOuter = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.09, 8, 6), mat(C.blue, { emissive: C.blue, emissiveIntensity: 0.5 })); cre.add(creOuter);
+const creInner = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.07, 8, 6), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.6 })); cre.add(creInner);
+const creLabel = makeLabel('Chainlink CRE', { px: 48, h: 0.4, bg: '#2038E2', fg: '#FFFFFF' });
+
+// Arc Studio workbench: a tilted screen with code, feeding the vault
+const STUDIO = V(4.9, 0, -2.2);
+const studio = new THREE.Group(); studio.position.copy(STUDIO); studio.rotation.y = -0.45; scene.add(studio);
+const stLeg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.0, 0.12), mat(0x2e2e2e)); stLeg.position.y = 0.5; studio.add(stLeg);
+const stFoot = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.06, 0.5), mat(0x2e2e2e)); stFoot.position.y = 0.03; studio.add(stFoot);
+const stScreen = new THREE.Group(); stScreen.position.y = 1.55; stScreen.rotation.x = -0.18; studio.add(stScreen);
+const stFrame = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.2, 0.07), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.25 })); stScreen.add(stFrame);
+const stGlass = new THREE.Mesh(new THREE.BoxGeometry(1.76, 1.06, 0.02), mat(0x111111)); stGlass.position.z = 0.04; stScreen.add(stGlass);
+const CODE = [[0.9, C.orange, 0], [1.2, C.ciel, 0.12], [0.7, C.beige, 0.12], [1.0, C.ciel, 0.24], [0.5, C.beige, 0.12], [0.8, C.orange, 0]];
+const stCode = CODE.map(([w, col, ind], k) => { const l = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, 0.01), new THREE.MeshBasicMaterial({ color: col, transparent: true })); l.position.set(-0.72 + ind + w / 2, 0.38 - k * 0.15, 0.06); stScreen.add(l); return l; });
+const studioLabel = makeLabel('Built in Arc Studio', { px: 44, h: 0.36, bg: '#1A1A1A', fg: '#007BFF', border: '#007BFF' });
+const deployBits = [0, 1, 2, 3, 4, 5].map(() => mesh(new THREE.BoxGeometry(0.14, 0.14, 0.14), mat(C.ciel, { emissive: C.ciel, emissiveIntensity: 0.7 })));
+
+// court
+const COURT = V(0, 0, -11);
+const COURT_BLOCK = V(0, 1.0, -11);
+const PED = [V(-3.2, 0, -10.2), V(0, 0, -13.6), V(3.2, 0, -10.2)];
+const peds = PED.map((p) => { const m = mesh(new THREE.CylinderGeometry(0.75, 0.9, 1.2, 32), mat(0x2a2a2a)); m.position.set(p.x, 0.6, p.z); return m; });
+const courtFloor = mesh(new THREE.CylinderGeometry(5.4, 5.4, 0.08, 64), mat(0x1f1f1f)); courtFloor.position.set(COURT.x, 0.04, COURT.z - 1);
+const courtRing = mesh(new THREE.TorusGeometry(5.4, 0.04, 8, 96), new THREE.MeshBasicMaterial({ color: C.orange, transparent: true })); courtRing.rotation.x = Math.PI / 2; courtRing.position.set(COURT.x, 0.1, COURT.z - 1);
+const courtLabel = makeLabel('AI court', { px: 56, h: 0.44, bg: '#FF5A00', fg: '#1A1A1A' });
+const JCOL = [C.beige, C.ciel, C.orange];
+const judges = PED.map((p, i) => mesh(new THREE.SphereGeometry(0.55, 32, 20), mat(JCOL[i], { emissive: JCOL[i], emissiveIntensity: 0.45 }), V(p.x, 1.9, p.z)));
+const judgeNames = ['gpt-oss', 'Gemini', 'Nemotron'].map((n, i) => makeLabel(n, { px: 44, h: 0.34, bg: '#1A1A1A', fg: ['#FFE6D0', '#007BFF', '#FF5A00'][i] }));
+const talk = PED.map(() => { const r = mesh(new THREE.TorusGeometry(0.7, 0.04, 8, 48), new THREE.MeshBasicMaterial({ color: C.white, transparent: true })); r.visible = false; return r; });
+const EV = [V(-1.1, 0.3, -8.9), V(0.3, 0.3, -8.9), V(1.9, 0.3, -8.6)];
+const evTiles = EV.map((p, i) => { const m = mesh(new THREE.BoxGeometry(0.75, 0.06, 0.55), mat(i === 2 ? C.red : C.white)); m.position.copy(p); return m; });
+const evNames = ['#1', '#2', '#7'].map((n, i) => makeLabel(n, { px: 44, h: 0.32, bg: i === 2 ? '#E5251B' : '#FFFFFF', fg: i === 2 ? '#FFFFFF' : '#1A1A1A' }));
+const citeBeams = [[0, 1], [1, 0], [1, 1], [2, 2]].map(([j, e]) => ({ j, e, b: beam(j === 2 ? C.red : C.ciel, 0.035) }));
+const fakeLabel = makeLabel('#7 never filed · rejected on-chain', { px: 44, h: 0.36, bg: '#E5251B', fg: '#FFFFFF' });
+const verdictLabel = makeLabel('AI verdict · 80% to freelancer', { px: 52, h: 0.42, bg: '#FFE6D0', fg: '#1A1A1A' });
+
+// appeal + arbitrators
+const appealCoin = coinMesh(C.orange, C.orange);
+const appealLabel = makeLabel('Appeal · 10% fee', { px: 48, h: 0.55, bg: '#FF5A00', fg: '#1A1A1A' });
+const ORB = V(6.2, 0, -8.2);
+const orb = new THREE.Group(); orb.position.copy(ORB); scene.add(orb);
+const orbBall = new THREE.Mesh(new THREE.SphereGeometry(0.7, 32, 20), mat(0x0d0d0d, { metalness: 0.6, roughness: 0.25 })); orbBall.position.set(1.4, 2.4, -0.4); orb.add(orbBall);
+const orbIris = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.06, 12, 48), new THREE.MeshBasicMaterial({ color: C.white, transparent: true })); orbIris.position.set(1.4, 2.4, -0.4); orbIris.rotation.y = -Math.PI / 2.6; orb.add(orbIris);
+const scanRing = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.035, 8, 48), new THREE.MeshBasicMaterial({ color: C.white, transparent: true })); scanRing.rotation.x = Math.PI / 2; orb.add(scanRing);
+const orbLabel = makeLabel('World ID', { px: 52, h: 0.55, bg: '#FFFFFF', fg: '#1A1A1A' });
+const barrier = mesh(new THREE.PlaneGeometry(2.2, 3.0), new THREE.MeshBasicMaterial({ color: C.red, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+barrier.rotation.y = Math.PI / 2;
+const blockedLabel = makeLabel('Party · blocked', { px: 48, h: 0.6, bg: '#E5251B', fg: '#FFFFFF' });
+const ARB_START = [V(13, 0, -5.5), V(14.2, 0, -6.5), V(15.4, 0, -7.5)];
+const arbs = [0, 1, 2].map(() => person(C.ciel));
+const arbRings = [0, 1, 2].map(() => { const r = mesh(new THREE.TorusGeometry(0.3, 0.045, 10, 36), new THREE.MeshBasicMaterial({ color: C.white, transparent: true })); return r; });
+const humanTags = [0, 1, 2].map(() => makeLabel('✓ human', { px: 40, h: 0.45, bg: '#FFFFFF', fg: '#1A1A1A', font: 'sans' }));
+const party = person(C.beige);
+const partyLabel = makeLabel('Client, 2nd wallet', { px: 40, h: 0.5, bg: '#1A1A1A', fg: '#FFE6D0' });
+const voteBox = [0, 1, 2].map(() => mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), mat(0x2a2a2a, { emissive: 0x111111 })));
+const voteQ = [0, 1, 2].map(() => makeLabel('?', { px: 56, h: 0.6, bg: null, fg: '#FFE6D0' }));
+const VOTES = ['80', '80', '50'];
+const voteLabels = VOTES.map((v) => makeLabel(v, { px: 64, h: 0.75, bg: '#FFE6D0', fg: '#1A1A1A' }));
+const finalLabel = makeLabel('Final · 80% · by humans', { px: 52, h: 0.6, bg: '#FFFFFF', fg: '#1A1A1A' });
+const halves = [0, 1].map(() => coinMesh(C.orange, C.orange));
+const feeTags = [0, 1].map(() => makeLabel('+ fee share', { px: 40, h: 0.5, bg: '#FF5A00', fg: '#1A1A1A' }));
+const strikeTag = makeLabel('Strike 1 / 2', { px: 48, h: 0.6, bg: '#E5251B', fg: '#FFFFFF' });
+
+// ---------- camera path ----------
+const CAM = [
+  [0, V(-3.5, 4.6, 12.5), V(-2.8, 2.1, 0)],
+  [5.2, V(-1.5, 6, 14), V(-1, 1.6, 0)],
+  [7.2, V(5.5, 9.5, 12.5), V(0, 2.6, 0)],
+  [11.4, V(2.5, 6.4, 14.5), V(0, 1.6, 0)],
+  [16, V(0, 7, 16), V(0, 1.8, 0)],
+  [21.6, V(0.5, 7.2, 16), V(0, 1.8, 0)],
+  [23.6, V(9, 11, 7), V(0, 2.6, -6)],
+  [26.0, V(8.5, 10, 2.5), V(0, 3, -10.5)],
+  [29.0, V(9, 9.6, 1), V(0.5, 2.8, -10.5)],
+  [31.6, V(8.5, 9.2, 0.5), V(0.5, 2.8, -10.5)],
+  [33.6, V(15, 11, 4.5), V(3.5, 1.8, -9.5)],
+  [42.4, V(13, 10, 3), V(2, 2.2, -10.5)],
+  [47.6, V(9, 7.4, -1.5), V(0.5, 2.2, -11)],
+  [49.8, V(0, 15, 13), V(0, 0, -4.5)],
+  [END, V(0, 16, 15), V(0, 0, -4.5)],
+];
+function camAt(t) {
+  let i = 0; while (i < CAM.length - 2 && t > CAM[i + 1][0]) i++;
+  const [ta, pa, la] = CAM[i], [tb, pb, lb] = CAM[i + 1]; const k = ss(ta, tb, t);
+  camera.position.copy(lv(pa, pb, k)); camera.lookAt(lv(la, lb, k));
+}
+
+// ---------- captions ----------
+const STEPS = [
+  [0, 6, '01', 'AI reads the deal', 'Two AI models turn plain English into clauses, each with a way to check it. People set the money.'],
+  [6, 12, '02', 'Chainlink proves it can’t get stuck', 'Every node checks every state the deal can reach. No certificate, no funding.'],
+  [12, 16, '03', 'USDC locks, clause by clause', 'Each promise holds its own money in the escrow on Arc.'],
+  [16, 22, '04', 'Nodes verify. Each clause pays itself', 'Every node checks the link, page or GitHub PR. When they agree, that clause pays.'],
+  [22, 32, '05', 'A dispute freezes one clause', '3 AI models run on every Chainlink node and debate. A made-up citation is rejected on-chain.'],
+  [32, 43, '06', 'Appeal: humans have the final say', 'Appeal costs 10%. World ID means one human, one seat, no parties. Votes stay hidden until all reveal.'],
+  [43, 48, '07', 'Honesty pays', 'The majority shares the appeal fee. The outlier gets a strike tied to their World ID. Two strikes: suspended.'],
+  [48, END, '08', 'Settled on Arc', '80% to the freelancer, 20% back to the client. Final in under a second.'],
+];
+const out = document.getElementById('out'); const g2 = out.getContext('2d');
+function wrap(ctx, text, maxW) { const words = text.split(' '); const lines = []; let line = ''; for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; } if (line) lines.push(line); return lines; }
+function grad(ctx, x, y, w, h) { const gr = ctx.createLinearGradient(x, 0, x + w, 0); gr.addColorStop(0, '#007BFF'); gr.addColorStop(0.38, '#FFE6D0'); gr.addColorStop(0.62, '#FF5A00'); gr.addColorStop(1, '#2038E2'); ctx.fillStyle = gr; ctx.fillRect(x, y, w, h); }
+function logo(ctx, x, y, s) { const q = s / 29; ctx.fillStyle = '#FFE6D0'; ctx.fillRect(x + 10 * q, y, 9 * q, 9 * q); ctx.fillStyle = '#FF5A00'; ctx.fillRect(x + 20 * q, y, 9 * q, 9 * q); ctx.fillStyle = '#007BFF'; ctx.fillRect(x, y + 10 * q, 9 * q, 9 * q); ctx.fillStyle = '#FFE6D0'; ctx.fillRect(x + 10 * q, y + 10 * q, 9 * q, 9 * q); }
+function overlay(t) {
+  const ctx = g2;
+  // soft vignette for text legibility
+  let gr = ctx.createLinearGradient(0, 0, 0, 300); gr.addColorStop(0, 'rgba(26,26,26,.85)'); gr.addColorStop(1, 'rgba(26,26,26,0)'); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, 300);
+  gr = ctx.createLinearGradient(0, H - 260, 0, H); gr.addColorStop(0, 'rgba(26,26,26,0)'); gr.addColorStop(1, 'rgba(26,26,26,.9)'); ctx.fillStyle = gr; ctx.fillRect(0, H - 260, W, 260);
+  logo(ctx, W - 96 - 230, 66, 44);
+  ctx.font = '52px "Jersey 10"'; ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; ctx.fillText('SETTLD', W - 96 - 170, 108);
+  for (let s = 0; s < STEPS.length; s++) {
+    const [a, b, n, title, sub] = STEPS[s]; const al = win(t, a, b, 0.4); if (al <= 0) continue;
+    ctx.globalAlpha = al; const dy = (1 - ss(a, a + 0.5, t)) * 14;
+    grad(ctx, 96, 92 + dy, 72, 6);
+    ctx.font = '40px "Jersey 10"'; ctx.fillStyle = '#FF5A00'; ctx.fillText('STEP ' + n + ' / 08', 188, 108 + dy);
+    ctx.font = '600 64px "Inter Tight"'; ctx.fillStyle = '#FFFFFF'; ctx.fillText(title, 96, 186 + dy);
+    ctx.font = '500 36px "Inter Tight"'; ctx.fillStyle = 'rgba(255,230,208,.9)';
+    wrap(ctx, sub, 1400).forEach((l, k, arr) => ctx.fillText(l, 96, H - 92 - (arr.length - 1 - k) * 48));
+    ctx.globalAlpha = 1;
+  }
+  // progress
+  const segW = (W - 192 - 7 * 10) / 8;
+  for (let s = 0; s < 8; s++) {
+    const [a, b] = STEPS[s]; const k = cl((t - a) / (b - a));
+    ctx.fillStyle = 'rgba(255,230,208,.18)'; ctx.fillRect(96 + s * (segW + 10), H - 48, segW, 6);
+    ctx.fillStyle = k >= 1 ? '#FFE6D0' : '#FF5A00'; ctx.fillRect(96 + s * (segW + 10), H - 48, segW * k, 6);
+  }
+  // end card
+  const e = ss(51.2, 52.2, t);
+  if (e > 0) {
+    ctx.globalAlpha = e * 0.92; ctx.fillStyle = '#1A1A1A'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = e;
+    grad(ctx, 0, 0, W, 12);
+    logo(ctx, W / 2 - 60, 300, 120);
+    ctx.textAlign = 'center'; ctx.font = '210px "Jersey 10"'; ctx.fillStyle = '#FFFFFF'; ctx.fillText('SETTLD', W / 2, 640);
+    ctx.font = '500 56px "Inter Tight"'; ctx.fillStyle = '#FFE6D0'; ctx.fillText('Every clause, settled. No dollar left stuck.', W / 2, 740);
+    ctx.font = '36px "Jersey 10"'; ctx.fillStyle = 'rgba(255,230,208,.72)'; ctx.fillText('ARC  ·  CHAINLINK CRE  ·  WORLD ID  ·  CIRCLE', W / 2, 820);
+    ctx.textAlign = 'left'; ctx.globalAlpha = 1;
+  }
+}
+
+// ---------- the timeline: every object is a pure function of t ----------
+const tmpColor = new THREE.Color();
+function update(t) {
+  camAt(t);
+  const tt = t; // wall time for idle motion
+  // persistent
+  lab(vaultLabel, V(0, -0.15, 2.2), 1 - ss(48.5, 49.5, t) * 0.2);
+  slotLabels.forEach((s, i) => lab(s, V(SLOT_X[i], 0.35, 1.75), 0.9));
+  lab(clientLabel, V(CLIENT_P.x, 3.0, CLIENT_P.z), 1);
+  lab(freeLabel, V(FREE_P.x, 3.0, FREE_P.z), 1);
+  vEdge.material.color.set(t > 10.6 ? C.ciel : 0x3a3a3a);
+
+  // 01 document + extraction
+  const docA = 1 - ss(5.6, 6.6, t);
+  setOp(doc, docA); docLines.forEach((l, k) => { setOp(l, docA); l.material.color.set(k === 4 && t > 3.6 ? C.orange : k === 5 && t > 4.0 ? 0xbbbbbb : C.ink); });
+  lab(docTitle, V(DOC.x, DOC.y + 2.1, DOC.z), docA * ss(0.2, 0.7, t));
+  const scanK = (t % 1.6) / 1.6; scan.position.set(DOC.x, DOC.y + 1.5 - scanK * 3.0, DOC.z + 0.1); setOp(scan, win(t, 0.4, 3.6) * 0.8);
+  [exA, exB].forEach((o, i) => { const a = tt * 1.6 + i * Math.PI; o.position.set(DOC.x + Math.cos(a) * 1.9, DOC.y + Math.sin(a * 1.3) * 0.9, DOC.z + Math.sin(a) * 1.1 + 0.6); setOp(o, win(t, 0.3, 5.4)); });
+  lab(exALabel, exA.position.clone().add(V(0, 0.5, 0)), win(t, 0.5, 5.4)); lab(exBLabel, exB.position.clone().add(V(0, 0.5, 0)), win(t, 0.5, 5.4));
+  lab(vagueLabel, V(DOC.x + 2.35, docLines[4].position.y, DOC.z + 0.2), win(t, 3.6, 6.0));
+  lab(skipLabel, V(DOC.x + 2.65, docLines[5].position.y - 0.05, DOC.z + 0.2), win(t, 4.0, 6.0));
+  lab(amountLabel, V(0, 2.9, 1.2), win(t, 4.4, 6.6));
+
+  // clause blocks: born from lines 0-3, fly to the vault, then their own life
+  for (let i = 0; i < 4; i++) {
+    const b = blocks[i]; const t0 = 2.0 + i * 0.45; const k = ss(t0, t0 + 1.1, t);
+    let p = arc(docLines[i].position, slotPos(i), k, 1.4); let sc = lerp(0.25, 1, k);
+    let col = CL_COL.pending;
+    if (i > 0) {
+      const tv = 18.4 + (i - 1) * 0.25, tp = 19.4 + (i - 1) * 0.45;
+      if (t > tv) col = CL_COL.verified; if (t > tp + 0.6) col = CL_COL.paid;
+      lab(blockTag[i], V(SLOT_X[i], 1.55, 0.3), win(t, tp + 0.6, 32.6));
+    } else {
+      if (t > 22.4) col = CL_COL.frozen; if (t > 48.6) col = CL_COL.paid;
+      const m = ss(23.4, 25.0, t); p = arc(p, COURT_BLOCK, m, 3.5);
+      lab(frozenTag, p.clone().add(V(0, 0.8, 0)), win(t, 22.5, 31.6));
+      lab(settledTag, p.clone().add(V(0, 0.8, 0)), win(t, 48.8, 51.4));
+    }
+    b.position.copy(p); b.scale.setScalar(sc); setOp(b, ss(t0 - 0.1, t0 + 0.2, t));
+    b.material.color.copy(col); b.material.emissive = b.material.emissive || new THREE.Color(); b.material.emissive.copy(col).multiplyScalar(i === 0 && t > 22.4 && t < 48.6 ? 0.35 : 0.05);
+  }
+
+  // 02 Chainlink nodes + checker
+  const nodeA = ss(6.0, 7.0, t) * (1 - ss(32.0, 33.0, t));
+  nodes.forEach((n, i) => {
+    const mv = ss(22.6, 24.4, t) * (1 - ss(47.6, 49.0, t)); n.g.position.copy(n.p).add(V(0, Math.sin(tt * 1.4 + i) * 0.08 + mv * 0.9, -11 * mv)); setOp(n.g, nodeA);
+    n.hex.rotation.y = tt * 0.4 + i;
+    const pulse = (t > 17.3 && t < 18.4) || (t > 7.2 && t < 10.4) || (t > 24.2 && t < 29.5);
+    n.ring.scale.setScalar(pulse ? 1 + 0.15 * Math.sin(tt * 10 + i) : 1); n.ring.material.opacity = nodeA * (pulse ? 1 : 0.4);
+    // checker grid: states light up, then all blue
+    n.cells.forEach((c, k) => { const on = t > 7.4 + (k + i * 3) * 0.13; c.material.color.set(t > 10.2 ? C.blue : on ? C.ciel : 0x333333); setOp(c, nodeA * (1 - ss(11.0, 12.0, t))); });
+    // beam to vault while certifying
+    const bk = win(t, 7.0, 10.8); n.down.visible = bk > 0.01; setBeam(n.down, n.g.position, lv(n.g.position, V(SLOT_X[i], 0.7, 0), ss(7.0, 7.8, t))); n.down.material.opacity = bk * 0.7;
+    // check marks during verification
+    lab(n.check, n.g.position.clone().add(V(0, 0.75, 0)), win(t, 17.6, 19.4));
+    // 3 LLMs on every node
+    n.llms.forEach((o, k) => { const a = tt * 2.2 + k * 2.094 + i; o.position.set(Math.cos(a) * 0.95, 0.15 + Math.sin(a * 2) * 0.08, Math.sin(a) * 0.95); setOp(o, nodeA * win(t, 23.8, 32.0)); });
+    const ck = win(t, 24.6, 28.2); n.toCourt.visible = ck > 0.01; setBeam(n.toCourt, n.g.position, lv(n.g.position, COURT_BLOCK, ss(24.6, 25.6, t))); n.toCourt.material.opacity = ck * 0.55;
+  });
+  lab(donLabel, V(-5.8, 4.9, 0), win(t, 6.4, 12.0));
+  lab(llmNodeLabel, V(-5.6, 5.6, -11), win(t, 23.8, 28.8));
+  const ck2 = ss(10.0, 10.7, t); cert.position.set(0, lerp(7.5, 2.3, ck2), -1.9); cert.scale.setScalar(0.75); cert.rotation.z = (1 - ck2) * 6; setOp(cert, win(t, 9.9, 13.2));
+  lab(certLabel, V(0, 3.3, -1.9), win(t, 10.5, 13.2));
+
+  // Chainlink CRE emblem at the centre of the node ring (steps 02-05)
+  const creC = new THREE.Vector3(); nodes.forEach((n) => creC.add(n.g.position)); creC.multiplyScalar(0.25);
+  const creA = win(t, 6.2, 32.0);
+  cre.position.copy(creC); creOuter.rotation.set(Math.PI / 2, 0, tt * 0.6); creInner.rotation.set(Math.PI / 2, 0, -tt * 0.9);
+  cre.scale.setScalar(1 + 0.06 * Math.sin(tt * 3)); setOp(cre, creA);
+  lab(creLabel, creC.clone().add(V(0, -0.65, 0)), creA * (1 - win(t, 12.2, 16.2)) * (1 - ss(28.4, 29.0, t)));
+
+  // Arc Studio workbench feeding the vault (steps 01-02)
+  setOp(studio, 1 - ss(48.6, 49.6, t) * 0.4);
+  stCode.forEach((l, k) => { l.scale.x = cl((t * 1.4 - k * 0.35) % 6) || 0.01; });
+  lab(studioLabel, STUDIO.clone().add(V(0, 2.55, 0)), win(t, 0.4, 16.0));
+  const feedA = win(t, 0.8, 11.6);
+  deployBits.forEach((b, k) => { const ph = ((t * 0.7 + k / 6) % 1); b.position.copy(arc(STUDIO.clone().add(V(-0.3, 1.6, 0.3)), V(2.7, 0.75, -0.6), ph, 1.2)); b.rotation.set(tt * 3, tt * 2, 0); setOp(b, feedA * Math.sin(Math.PI * ph)); });
+
+  // 03 coins in, 04 coins out
+  coins.forEach((c) => {
+    const n = c.i * 5 + c.j; const t0 = 12.2 + n * 0.11; const k = ss(t0, t0 + 0.75, t);
+    const home = slotPos(c.i).add(V(0, 0.32 + c.j * 0.13, 0));
+    let p = arc(CLIENT_P.clone().add(V(0.4, 1.4, 0)), home, k, 2.4);
+    if (c.i > 0) { const tp = 19.4 + (c.i - 1) * 0.45 + c.j * 0.07; p = arc(p, FREE_P.clone().add(V(-0.5, 1.4 + c.j * 0.05, 0)), ss(tp, tp + 0.8, t), 2.2); setOp(c.m, ss(t0 - 0.05, t0 + 0.1, t) * (1 - ss(tp + 0.7, tp + 0.9, t))); }
+    else {
+      const m = ss(23.4, 25.0, t); p = arc(p, COURT_BLOCK.clone().add(V(0, 0.32 + c.j * 0.13, 0)), m, 3.5);
+      const tp = 48.4 + c.j * 0.12; const dest = c.j < 4 ? FREE_P.clone().add(V(-0.5, 1.4, 0)) : CLIENT_P.clone().add(V(0.5, 1.4, 0));
+      p = arc(p, dest, ss(tp, tp + 1.2, t), 4);
+      setOp(c.m, ss(t0 - 0.05, t0 + 0.1, t) * (1 - ss(tp + 1.1, tp + 1.3, t)));
+    }
+    c.m.position.copy(p); c.m.rotation.x = k < 1 ? k * Math.PI * 2 : 0;
+  });
+  lab(usdcLabel, V(0, 2.6, 1.0), win(t, 13.6, 16.2));
+
+  // 04 evidence packets up, consensus beams down
+  packets.forEach((pk, idx) => {
+    const t0 = 16.4 + idx * 0.25; const k = ss(t0, t0 + 1.0, t);
+    pk.position.copy(arc(FREE_P.clone().add(V(-0.4, 1.8, 0)), NODE_C, k, 1.5)); pk.rotation.set(tt * 2, tt * 3, 0);
+    setOp(pk, win(t, t0, t0 + 1.25, 0.2));
+    verifyBeams[idx].forEach((b, ni) => { const a = win(t, 18.2, 19.6, 0.25); b.visible = a > 0.01; setBeam(b, nodes[ni].g.position, lv(nodes[ni].g.position, slotPos(idx + 1).add(V(0, 0.3, 0)), ss(18.2, 18.6, t))); b.material.opacity = a * 0.7; });
+  });
+  lab(evLabel, V(5.3, 3.4, 1.6), win(t, 16.3, 18.0));
+  lab(freeGain, V(FREE_P.x, 3.65, FREE_P.z), win(t, 20.6, 23.6));
+
+  // 05 court
+  const courtA = ss(22.8, 24.0, t);
+  setOp(courtFloor, courtA); setOp(courtRing, courtA * 0.9); peds.forEach((p) => setOp(p, courtA));
+  lab(courtLabel, V(-4.6, 1.2, -7.4), win(t, 24.0, 33.0));
+  judges.forEach((j, i) => {
+    let a = courtA * (1 - ss(33.0, 33.8, t)); let s = 1 + Math.sin(tt * 2 + i) * 0.03;
+    if (i === 2) { const d = ss(29.2, 30.2, t); s *= 1 - d * 0.55; j.material.color.set(d > 0.3 ? C.grey : C.orange); j.material.emissiveIntensity = 0.45 * (1 - d); j.position.y = 1.9 - d * 0.5; }
+    j.scale.setScalar(s); setOp(j, a);
+    lab(judgeNames[i], V(PED[i].x, 2.85 - (i === 2 ? ss(29.2, 30.2, t) * 0.5 : 0), PED[i].z), a * ss(24.0, 24.5, t));
+  });
+  [25.6, 26.0, 26.4, 26.8, 27.2, 27.6].forEach((t0, q) => {
+    const i = q % 3; const r = talk[i]; const k = (t - t0) / 0.6;
+    if (k >= 0 && k <= 1) { r.visible = true; r.position.set(PED[i].x, 1.9, PED[i].z); r.lookAt(camera.position); r.scale.setScalar(1 + k * 1.4); r.material.opacity = 1 - k; }
+  });
+  if (!(t >= 25.6 && t <= 28.2)) talk.forEach((r) => (r.visible = false));
+  evTiles.forEach((m, i) => { const a = i === 2 ? win(t, 27.9, 31.6) : win(t, 24.4, 33.0); setOp(m, a); if (i === 2) m.material.emissive = new THREE.Color(t > 28.8 && Math.sin(tt * 18) > 0 ? C.red : 0x000000); });
+  evNames.forEach((s, i) => lab(s, EV[i].clone().add(V(0, 0.45, 0)), i === 2 ? win(t, 27.9, 31.6) : win(t, 24.4, 33.0)));
+  citeBeams.forEach(({ j, e, b }, q) => { const t0 = 28.0 + q * 0.12; const a = win(t, t0, j === 2 ? 30.0 : 31.4, 0.2); b.visible = a > 0.01; setBeam(b, judges[j].position, lv(judges[j].position, EV[e], ss(t0, t0 + 0.4, t))); b.material.opacity = a * 0.85; });
+  lab(fakeLabel, V(4.4, 2.1, -7.4), win(t, 28.8, 31.6));
+  lab(verdictLabel, V(0, 3.0, -11), win(t, 30.2, 32.8));
+
+  // 06 appeal: fee coin, World ID gate, arbitrators, hidden votes
+  const ak = ss(32.3, 33.6, t);
+  let acp = arc(CLIENT_P.clone().add(V(0.4, 1.5, 0)), V(0, 2.3, -11), ak, 2.2);
+  appealCoin.rotation.x = Math.PI / 2 * ak + tt * 0; appealCoin.rotation.z = tt * 1.5;
+  appealCoin.position.copy(acp); setOp(appealCoin, ss(32.2, 32.4, t) * (1 - ss(43.2, 43.4, t)));
+  lab(appealLabel, acp.clone().add(V(0, 0.7, 0)), win(t, 32.4, 35.6));
+  const orbA = win(t, 33.4, 47.8);
+  setOp(orb, orbA); orbIris.material.opacity = orbA * (0.7 + 0.3 * Math.sin(tt * 4));
+  lab(orbLabel, V(ORB.x + 1.4, 3.6, ORB.z - 0.4), orbA);
+  let scanning = false;
+  arbs.forEach((g, i) => {
+    const ta = 34.0 + i * 1.0; const seat = V(PED[i].x, 1.2, PED[i].z);
+    let p = lv(ARB_START[i], ORB, ss(ta, ta + 0.9, t));
+    if (t > ta + 1.5) p = arc(ORB, seat, ss(ta + 1.5, ta + 2.6, t), 1.0);
+    if (t > ta + 0.9 && t < ta + 1.5) { scanning = true; scanRing.position.y = 0.2 + ((t - ta - 0.9) / 0.6) * 2.4; }
+    g.position.copy(p); g.lookAt(t > ta + 1.5 ? COURT_BLOCK.x : ORB.x - 3, p.y, COURT_BLOCK.z);
+    setOp(g, ss(ta - 0.6, ta, t) * (1 - ss(49.5, 50.5, t)));
+    const verified = t > ta + 1.4;
+    arbRings[i].position.copy(p).add(V(0, 2.75, 0)); arbRings[i].rotation.x = Math.PI / 2;
+    arbRings[i].material.color.set(i === 2 && t > 44.8 ? C.red : C.white); setOp(arbRings[i], verified ? 1 - ss(49.5, 50.5, t) : 0);
+    lab(humanTags[i], p.clone().add(V(0, 3.25, 0)), win(t, ta + 1.4, ta + 2.8, 0.2));
+    // hidden vote, then reveal
+    const vb = voteBox[i]; vb.position.copy(seat).add(V(0, 3.7, 0)); vb.rotation.set(tt * 0.8, tt * 1.1 + i, 0);
+    setOp(vb, win(t, 38.9 + i * 0.15, 40.7 + i * 0.12, 0.25)); lab(voteQ[i], seat.clone().add(V(0, 3.7, 0)), win(t, 39.0 + i * 0.15, 40.6 + i * 0.12, 0.25));
+    lab(voteLabels[i], seat.clone().add(V(0, 3.7, 0)), win(t, 40.8 + i * 0.12, 47.6));
+  });
+  scanRing.position.x = 0; scanRing.position.z = 0; setOp(scanRing, scanning ? 1 : 0);
+  // the client trying to sit on their own case
+  const tp = 37.6; let pp = lv(V(12, 0, -10.5), ORB, ss(tp, tp + 0.9, t));
+  pp = lv(pp, V(12, 0, -10.5), ss(39.2, 40.2, t));
+  party.position.copy(pp); party.lookAt(ORB.x - 3, 0, ORB.z); setOp(party, win(t, tp - 0.4, 40.3));
+  lab(partyLabel, pp.clone().add(V(0, 2.9, 0)), win(t, tp - 0.2, 40.2));
+  barrier.position.set(ORB.x - 0.6, 1.5, ORB.z); barrier.material.opacity = win(t, 38.4, 39.9, 0.2) * (0.35 + 0.25 * Math.sin(tt * 16)); barrier.visible = barrier.material.opacity > 0.01;
+  lab(blockedLabel, V(ORB.x + 0.4, 4.6, ORB.z + 0.6), win(t, 38.5, 40.2, 0.2));
+  lab(finalLabel, V(0, 2.9, -8.6), win(t, 41.6, 47.6));
+
+  // 07 incentives: fee to the majority, strike to the outlier
+  halves.forEach((h, i) => {
+    const k = ss(43.3, 44.5, t); const seat = V(PED[i].x, 1.2, PED[i].z);
+    h.position.copy(arc(V(0, 2.3, -11), seat.clone().add(V(0, 2.1, 0)), k, 1.6)); h.scale.setScalar(0.72); h.rotation.z = tt * 2;
+    setOp(h, ss(43.2, 43.4, t) * (1 - ss(44.4, 44.7, t)));
+    lab(feeTags[i], seat.clone().add(V(0, 4.55, 0)), win(t, 44.4, 47.8));
+  });
+  lab(strikeTag, V(PED[2].x, 1.2 + 4.55, PED[2].z), win(t, 44.8, 47.8));
+
+  // 08 settle
+  lab(freeGain2, V(FREE_P.x, 4.0, FREE_P.z), win(t, 49.6, 52));
+  lab(clientGain, V(CLIENT_P.x, 4.0, CLIENT_P.z), win(t, 49.6, 52));
+}
+
+// ---------- loop, controls, recording ----------
+let t = 0, playing = true, last = performance.now(), rec = null;
+const playBtn = document.getElementById('play'), scrub = document.getElementById('scrub'), timeEl = document.getElementById('time'), msg = document.getElementById('msg');
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (playing) { t += dt; if (t >= END) { if (rec) { t = END; stopRec(); } else t = 0; } }
+  draw();
+  scrub.value = String(Math.round((t / END) * 1000)); timeEl.textContent = t.toFixed(1) + ' s';
+  requestAnimationFrame(frame);
+}
+playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? 'Pause' : 'Play'; };
+document.getElementById('restart').onclick = () => { t = 0; playing = true; playBtn.textContent = 'Pause'; };
+scrub.oninput = () => { t = (Number(scrub.value) / 1000) * END; };
+addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); playBtn.click(); } if (e.code === 'ArrowRight') t = Math.min(END, t + 1); if (e.code === 'ArrowLeft') t = Math.max(0, t - 1); });
+function stopRec() { if (rec && rec.state !== 'inactive') rec.stop(); }
+document.getElementById('rec').onclick = () => {
+  if (rec) return;
+  const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) => MediaRecorder.isTypeSupported(m));
+  const chunks = []; rec = new MediaRecorder(out.captureStream(60), { mimeType: type, videoBitsPerSecond: 16_000_000 });
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' })); a.download = 'settld-simulation.webm'; a.click(); rec = null; msg.textContent = 'Saved settld-simulation.webm'; };
+  t = 0; playing = true; playBtn.textContent = 'Pause'; msg.textContent = 'Recording… keep this tab in front until it finishes (' + END + ' s)'; rec.start(200);
+};
+function draw() { update(t); renderer.render(scene, camera); g2.drawImage(renderer.domElement, 0, 0, W, H); overlay(t); }
+window.__sim = { seek: (x) => { t = x; playing = false; draw(); }, play: () => { playing = true; } };
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,75 +1,21 @@
-# React + TypeScript + Vite
+# client/
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Settld website: React 19 + Vite + TypeScript, three.js scenes, Circle user-controlled wallets (email code + PIN),
+World ID (IDKit) for arbitrators.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev      # http://localhost:5173 — /api is proxied to the Railway backend (set VITE_API_PROXY=http://localhost:3000 for a local server)
+npm run build    # client/dist; in production the API server serves it (see ../Dockerfile)
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Needs `client/.env` with `VITE_CIRCLE_APP_ID` (never commit it).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+| Folder | Contents |
+|---|---|
+| `src/app/` | App shell, hash router, scroll and motion helpers |
+| `src/pages/` | One file per screen (overview, new deal, deal, wallet, timeline, court, how it works) |
+| `src/components/` | Shared UI, the confirmation flow modal, World ID widget |
+| `src/data/` | Store, live API calls (`live.ts`, `liveDeals.ts`), Circle and World ID flows, demo fixtures |
+| `src/lib/` | Formatting, address checks, deadlock checker bridge to `../shared` |
+| `src/three/` | three.js scenes |

@@ -1,7 +1,0 @@
-{
-  "schedule": "0 */5 * * * *",
-  "chainSelectorName": "arc-testnet",
-  "pingAddress": "0x14f6965f09f80ec65b190d4e377aadd8708469df",
-  "number": "42",
-  "gasLimit": "500000"
-}

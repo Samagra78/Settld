@@ -1,0 +1,13 @@
+# Foundry config for the Arc Studio tests (test-forge/). Hardhat (hardhat.config.ts) builds and deploys.
+# Run: forge test   (from contracts/)
+[profile.default]
+src = "src"
+test = "test-forge"
+out = "out-forge"
+cache_path = "cache-forge"
+libs = ["lib", "node_modules"]
+solc_version = "0.8.28"
+auto_detect_solc = false
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
