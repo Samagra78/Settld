@@ -3,6 +3,7 @@ import axios from 'axios';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promisify, stripVTControlCharacters } from 'node:util';
@@ -952,6 +953,14 @@ registerWorldIdRoutes(app, {
   reply,
   arc: arc as unknown as PublicClient,
 });
+
+// The website (client/dist, built in the Docker image). Same address as the API, so the login cookie is first-party.
+// The site routes with #hash URLs, so only index.html and its assets are needed; /api/* never reaches this.
+const SITE_DIR = fileURLToPath(new URL('../../client/dist', import.meta.url));
+if (existsSync(SITE_DIR)) {
+  app.use(express.static(SITE_DIR, { index: 'index.html', maxAge: '1h' }));
+  console.log('[site] serving the website from client/dist');
+}
 
 app.listen(PORT, () => {
   console.log(`Settld server running on http://localhost:${PORT}`);

@@ -14,14 +14,18 @@ RUN (curl -sSL https://cre.chain.link/install.sh | bash) || echo "CRE CLI not in
 ENV PATH="/root/.bun/bin:/root/.cre/bin:${PATH}"
 
 WORKDIR /app
-# only what the backend needs: server, shared code, CRE workflows (contracts/client are not part of the backend image)
+# the backend (server, shared code, CRE workflows) and the website it serves (client); contracts stay out
 COPY shared ./shared
 COPY cre ./cre
 COPY server ./server
+COPY client ./client
 
 RUN cd shared && (bun install --frozen-lockfile || bun install)
 RUN for wf in cre/wf0-certify cre/wf1-verify cre/wf3-court cre/ping; do (cd "$wf" && (bun install --frozen-lockfile || bun install)); done
 RUN cd server && (npm ci --omit=dev || npm install --omit=dev) && npm install --no-save tsx
+# the website: built once here, served by the API server from client/dist (same address, so the login cookie is first-party)
+# the Circle app id is public (it ships in the site's JavaScript anyway)
+RUN cd client && npm ci && VITE_CIRCLE_APP_ID=bea33821-add4-5661-bbb7-59fa472dc087 npm run build && rm -rf node_modules
 
 ENV NODE_ENV=production
 ENV PORT=3000
