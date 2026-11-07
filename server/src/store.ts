@@ -373,11 +373,12 @@ export async function listDeals(limit = 20): Promise<Row[]> {
   return sqlite.prepare('SELECT * FROM deals ORDER BY deal_id DESC LIMIT ?').all(limit) as Row[];
 }
 export async function listCases(limit = 20): Promise<Row[]> {
-  if (mongo) return (await mongo.collection('cases').find({}).sort({ case_id: -1 }).limit(limit).toArray()).map((d) => clean(d)!);
+  // the public monitor shows only real, on-chain cases (seeded demo cases stay on the arbitrator dashboard)
+  if (mongo) return (await mongo.collection('cases').find({ demo: { $ne: true } }).sort({ case_id: -1 }).limit(limit).toArray()).map((d) => clean(d)!);
   return sqlite.prepare('SELECT * FROM cases ORDER BY case_id DESC LIMIT ?').all(limit) as Row[];
 }
 export async function listVotes(limit = 30): Promise<Row[]> {
-  if (mongo) return (await mongo.collection('panel_votes').find({}).sort({ case_id: -1 }).limit(limit).toArray()).map((d) => clean(d)!);
+  if (mongo) return (await mongo.collection('panel_votes').find({ demo: { $ne: true } }).sort({ case_id: -1 }).limit(limit).toArray()).map((d) => clean(d)!);
   return sqlite.prepare('SELECT * FROM panel_votes ORDER BY case_id DESC LIMIT ?').all(limit) as Row[];
 }
 /** Events, newest first (limit) or all in chain order (no limit). */
